@@ -7,6 +7,7 @@ import {
   Legend,
 } from 'recharts';
 import { getSeverityDistribution } from '../../data/mockData';
+import { useDashboard } from '../../context/DashboardContext';
 import type { Severity } from '../../types/telemetry';
 
 const COLORS: Record<Severity, string> = {
@@ -17,7 +18,8 @@ const COLORS: Record<Severity, string> = {
 };
 
 export default function SeverityChart() {
-  const data = getSeverityDistribution();
+  const { allEvents } = useDashboard();
+  const data = getSeverityDistribution(allEvents);
 
   return (
     <div className="glass-panel panel-glow hover-lift rounded-xl p-5 animate-fade-in">

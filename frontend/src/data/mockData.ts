@@ -1,49 +1,45 @@
+/**
+ * SentinelCore — Data Helpers
+ *
+ * Pure utility functions for formatting and computing derived data.
+ * All data is now provided by DashboardContext (from the live API).
+ * These functions accept data as parameters instead of importing mock JSON.
+ */
+
 import type {
   TelemetryEvent,
   SystemInfo,
   Alert,
-  MetricPoint,
   Severity,
   SeverityCount,
   FaultTypeCount,
   SystemFailureCount,
 } from '../types/telemetry';
 
-import eventsData from '../../mock-data/events.json';
-import systemsData from '../../mock-data/systems.json';
-import alertsData from '../../mock-data/alerts.json';
-import metricsData from '../../mock-data/metrics.json';
-
-// ── Raw data exports ───────────────────────────────────
-export const events: TelemetryEvent[] = eventsData.data as TelemetryEvent[];
-export const systems: SystemInfo[] = systemsData.data as SystemInfo[];
-export const alerts: Alert[] = alertsData.data as Alert[];
-export const metrics: MetricPoint[] = metricsData.data as MetricPoint[];
-
 // ── Helper functions ───────────────────────────────────
-// These can be replaced with API calls in the future
+// Accept data as parameters so they work with live API data
 
-export function getEventsBySeverity(severity: Severity): TelemetryEvent[] {
+export function getEventsBySeverity(events: TelemetryEvent[], severity: Severity): TelemetryEvent[] {
   return events.filter((e) => e.severity === severity);
 }
 
-export function getSystemById(id: string): SystemInfo | undefined {
+export function getSystemById(systems: SystemInfo[], id: string): SystemInfo | undefined {
   return systems.find((s) => s.system_id === id);
 }
 
-export function getActiveAlerts(): Alert[] {
+export function getActiveAlerts(alerts: Alert[]): Alert[] {
   return alerts.filter((a) => !a.acknowledged);
 }
 
-export function getAcknowledgedAlerts(): Alert[] {
+export function getAcknowledgedAlerts(alerts: Alert[]): Alert[] {
   return alerts.filter((a) => a.acknowledged);
 }
 
-export function getAlertsBySeverity(severity: Severity): Alert[] {
+export function getAlertsBySeverity(alerts: Alert[], severity: Severity): Alert[] {
   return alerts.filter((a) => a.severity === severity);
 }
 
-export function getSeverityDistribution(): SeverityCount[] {
+export function getSeverityDistribution(events: TelemetryEvent[]): SeverityCount[] {
   const counts: Record<Severity, number> = { CRITICAL: 0, ERROR: 0, WARNING: 0, INFO: 0 };
   events.forEach((e) => counts[e.severity]++);
   return Object.entries(counts).map(([severity, count]) => ({
@@ -52,7 +48,7 @@ export function getSeverityDistribution(): SeverityCount[] {
   }));
 }
 
-export function getTopFaultTypes(limit = 5): FaultTypeCount[] {
+export function getTopFaultTypes(events: TelemetryEvent[], limit = 5): FaultTypeCount[] {
   const counts: Record<string, number> = {};
   events.forEach((e) => {
     counts[e.fault_type] = (counts[e.fault_type] || 0) + 1;
@@ -63,7 +59,7 @@ export function getTopFaultTypes(limit = 5): FaultTypeCount[] {
     .slice(0, limit);
 }
 
-export function getTopFailingSystems(limit = 5): SystemFailureCount[] {
+export function getTopFailingSystems(events: TelemetryEvent[], limit = 5): SystemFailureCount[] {
   const counts: Record<string, { hostname: string; count: number }> = {};
   events
     .filter((e) => e.severity === 'CRITICAL' || e.severity === 'ERROR')
@@ -83,25 +79,27 @@ export function getTopFailingSystems(limit = 5): SystemFailureCount[] {
     .slice(0, limit);
 }
 
-export function getOnlineSystems(): number {
+export function getOnlineSystems(systems: SystemInfo[]): number {
   return systems.filter((s) => s.status === 'online').length;
 }
 
-export function getDegradedSystems(): number {
+export function getDegradedSystems(systems: SystemInfo[]): number {
   return systems.filter((s) => s.status === 'degraded').length;
 }
 
-export function getOfflineSystems(): number {
+export function getOfflineSystems(systems: SystemInfo[]): number {
   return systems.filter((s) => s.status === 'offline').length;
 }
 
-export function getTotalEventCount(): number {
+export function getTotalEventCount(events: TelemetryEvent[]): number {
   return events.length;
 }
 
-export function getCriticalAlertCount(): number {
-  return getActiveAlerts().filter((a) => a.severity === 'CRITICAL').length;
+export function getCriticalAlertCount(alerts: Alert[]): number {
+  return getActiveAlerts(alerts).filter((a) => a.severity === 'CRITICAL').length;
 }
+
+// ── Formatting utilities (unchanged) ────────────────────
 
 export function formatTimestamp(ts: string): string {
   const d = new Date(ts);
@@ -125,7 +123,7 @@ export function formatTimeShort(ts: string): string {
 }
 
 export function timeAgo(ts: string): string {
-  const now = new Date('2026-03-08T14:25:00Z'); // fixed reference for mock
+  const now = new Date();
   const then = new Date(ts);
   const diffMs = now.getTime() - then.getTime();
   const diffMin = Math.floor(diffMs / 60000);

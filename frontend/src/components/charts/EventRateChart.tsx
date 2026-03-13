@@ -7,9 +7,11 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts';
-import { metrics, formatTimeShort } from '../../data/mockData';
+import { formatTimeShort } from '../../data/mockData';
+import { useDashboard } from '../../context/DashboardContext';
 
 export default function EventRateChart() {
+  const { metrics } = useDashboard();
   const data = metrics.map((m) => ({
     time: formatTimeShort(m.timestamp),
     events: m.event_count,
@@ -18,7 +20,7 @@ export default function EventRateChart() {
   return (
     <div className="glass-panel panel-glow hover-lift rounded-xl p-5 animate-fade-in">
       <h3 className="text-xs font-semibold text-text-primary uppercase tracking-wider mb-1">Event Rate</h3>
-      <p className="text-[10px] text-text-muted mb-4">Events per hour over the last 15 hours</p>
+      <p className="text-[10px] text-text-muted mb-4">Events per hour over the last 24 hours</p>
       <div className="neon-cyan">
         <ResponsiveContainer width="100%" height={240}>
           <AreaChart data={data} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>

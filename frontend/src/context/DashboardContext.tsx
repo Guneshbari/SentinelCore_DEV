@@ -1,6 +1,6 @@
-import { createContext, useContext, useState, useCallback, useEffect, useRef, type ReactNode } from 'react';
-import type { Severity, TelemetryEvent } from '../types/telemetry';
-import { events as allEvents } from '../data/mockData';
+import { useState, useEffect, useCallback, createContext, useContext, useRef, type ReactNode } from 'react';
+import type { Severity, TelemetryEvent, SystemInfo, Alert, MetricPoint } from '../types/telemetry';
+import { fetchEvents, fetchSystems, fetchAlerts, fetchMetrics } from '../lib/api';
 
 // ── Types ───────────────────────────────────────────────
 export type TimeRange = '5m' | '15m' | '1h' | '6h' | '24h';
@@ -55,6 +55,14 @@ interface DashboardState {
   searchQuery: string;
   setSearchQuery: (q: string) => void;
 
+  // Live data
+  allEvents: TelemetryEvent[];
+  systems: SystemInfo[];
+  alerts: Alert[];
+  metrics: MetricPoint[];
+  isLoading: boolean;
+  apiError: string | null;
+
   // Computed
   filteredEvents: TelemetryEvent[];
   refreshTick: number;
@@ -70,8 +78,8 @@ interface DashboardProviderProps {
 }
 
 export function DashboardProvider({ children }: DashboardProviderProps) {
-  const [timeRange, setTimeRange] = useState<TimeRange>('15m');
-  const [autoRefresh, setAutoRefresh] = useState<AutoRefresh>('off');
+  const [timeRange, setTimeRange] = useState<TimeRange>('24h');
+  const [autoRefresh, setAutoRefresh] = useState<AutoRefresh>('10s');
   const [selectedSystems, setSelectedSystems] = useState<string[]>([]);
   const [selectedSeverities, setSelectedSeverities] = useState<Severity[]>([]);
   const [selectedFaultTypes, setSelectedFaultTypes] = useState<string[]>([]);
@@ -79,17 +87,56 @@ export function DashboardProvider({ children }: DashboardProviderProps) {
   const [refreshTick, setRefreshTick] = useState(0);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Auto-refresh timer
+  // Live data state
+  const [allEvents, setAllEvents] = useState<TelemetryEvent[]>([]);
+  const [systems, setSystems] = useState<SystemInfo[]>([]);
+  const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [metrics, setMetrics] = useState<MetricPoint[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [apiError, setApiError] = useState<string | null>(null);
+
+  // Fetch all data from the API
+  const loadData = useCallback(async () => {
+    try {
+      const [eventsData, systemsData, alertsData, metricsData] = await Promise.all([
+        fetchEvents(),
+        fetchSystems(),
+        fetchAlerts(),
+        fetchMetrics(),
+      ]);
+      setAllEvents(eventsData);
+      setSystems(systemsData);
+      setAlerts(alertsData);
+      setMetrics(metricsData);
+      setApiError(null);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'API connection failed';
+      setApiError(msg);
+      console.warn('SentinelCore API error:', msg);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  // Initial data load
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  // Auto-refresh timer — re-fetch data from API
   useEffect(() => {
     if (intervalRef.current) clearInterval(intervalRef.current);
     const ms = REFRESH_MS[autoRefresh];
     if (ms) {
-      intervalRef.current = setInterval(() => setRefreshTick((t) => t + 1), ms);
+      intervalRef.current = setInterval(() => {
+        setRefreshTick((t) => t + 1);
+        loadData();
+      }, ms);
     }
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
-  }, [autoRefresh]);
+  }, [autoRefresh, loadData]);
 
   const clearFilters = useCallback(() => {
     setSelectedSystems([]);
@@ -104,12 +151,12 @@ export function DashboardProvider({ children }: DashboardProviderProps) {
     selectedFaultTypes.length > 0 ||
     searchQuery.length > 0;
 
-  // Filter events based on all global state
+  // Filter events based on all global state — use real time
   const filteredEvents = allEvents.filter((e) => {
-    // Time range filter — use mock reference time
-    const refTime = new Date('2026-03-08T14:25:00Z').getTime();
+    // Time range filter — use real current time
+    const now = Date.now();
     const eventTime = new Date(e.event_time).getTime();
-    if (eventTime < refTime - TIME_RANGE_MS[timeRange]) return false;
+    if (eventTime < now - TIME_RANGE_MS[timeRange]) return false;
 
     // System filter
     if (selectedSystems.length > 0 && !selectedSystems.includes(e.hostname)) return false;
@@ -150,6 +197,12 @@ export function DashboardProvider({ children }: DashboardProviderProps) {
         setSelectedFaultTypes,
         searchQuery,
         setSearchQuery,
+        allEvents,
+        systems,
+        alerts,
+        metrics,
+        isLoading,
+        apiError,
         filteredEvents,
         refreshTick,
         clearFilters,

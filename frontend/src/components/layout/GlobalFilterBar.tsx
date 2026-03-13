@@ -1,12 +1,9 @@
 import { X, Search, Filter, ChevronDown } from 'lucide-react';
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { useDashboard } from '../../context/DashboardContext';
-import { events } from '../../data/mockData';
 import type { Severity } from '../../types/telemetry';
 
 const ALL_SEVERITIES: Severity[] = ['CRITICAL', 'ERROR', 'WARNING', 'INFO'];
-const ALL_FAULT_TYPES = [...new Set(events.map((e) => e.fault_type))].sort();
-const ALL_SYSTEMS = [...new Set(events.map((e) => e.hostname))].sort();
 
 const SEVERITY_COLORS: Record<Severity, string> = {
   CRITICAL: '#ff3b30',
@@ -17,12 +14,17 @@ const SEVERITY_COLORS: Record<Severity, string> = {
 
 export default function GlobalFilterBar() {
   const {
+    allEvents,
     selectedSystems, setSelectedSystems,
     selectedSeverities, setSelectedSeverities,
     selectedFaultTypes, setSelectedFaultTypes,
     searchQuery, setSearchQuery,
     clearFilters, hasActiveFilters,
   } = useDashboard();
+
+  // Derive filter options dynamically from live events data
+  const ALL_FAULT_TYPES = useMemo(() => [...new Set(allEvents.map((e) => e.fault_type))].sort(), [allEvents]);
+  const ALL_SYSTEMS = useMemo(() => [...new Set(allEvents.map((e) => e.hostname))].sort(), [allEvents]);
 
   const [showSystems, setShowSystems] = useState(false);
   const [showFaults, setShowFaults] = useState(false);

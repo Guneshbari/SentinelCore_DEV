@@ -1,5 +1,4 @@
 import { useNavigate } from 'react-router-dom';
-import { systems } from '../../data/mockData';
 import { useDashboard } from '../../context/DashboardContext';
 import type { SystemInfo } from '../../types/telemetry';
 
@@ -25,7 +24,7 @@ const levelColors: Record<string, { bg: string; border: string; text: string; gl
 
 export default function SystemHealthHeatmap() {
   const navigate = useNavigate();
-  const { filteredEvents } = useDashboard();
+  const { filteredEvents, systems } = useDashboard();
 
   const systemHealth = systems.map((s) => ({
     ...s,

@@ -1,7 +1,7 @@
 import { useNavigate } from 'react-router-dom';
-import { systems, events, timeAgo } from '../data/mockData';
+import { timeAgo } from '../data/mockData';
 import ResourceGauge from '../components/shared/ResourceGauge';
-
+import { useDashboard } from '../context/DashboardContext';
 import type { SystemStatus } from '../types/telemetry';
 
 const statusConfig: Record<SystemStatus, { color: string; label: string; dot: string; glow: string }> = {
@@ -12,6 +12,7 @@ const statusConfig: Record<SystemStatus, { color: string; label: string; dot: st
 
 export default function SystemsPage() {
   const navigate = useNavigate();
+  const { systems, allEvents } = useDashboard();
 
   const onlineCount = systems.filter((s) => s.status === 'online').length;
   const degradedCount = systems.filter((s) => s.status === 'degraded').length;
@@ -45,11 +46,10 @@ export default function SystemsPage() {
           const status = statusConfig[system.status];
 
           // Recent event info
-          const systemEvents = events.filter((e) => e.system_id === system.system_id);
+          const systemEvents = allEvents.filter((e) => e.system_id === system.system_id);
           const recentEvent = systemEvents.sort((a, b) => new Date(b.event_time).getTime() - new Date(a.event_time).getTime())[0];
           const eventRate5m = systemEvents.filter((e) => {
-            const refTime = new Date('2026-03-08T14:25:00Z').getTime();
-            return new Date(e.event_time).getTime() > refTime - 5 * 60_000;
+            return new Date(e.event_time).getTime() > Date.now() - 5 * 60_000;
           }).length;
           const lastFault = recentEvent?.fault_type || 'None';
 

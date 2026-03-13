@@ -15,13 +15,13 @@ import {
   ResponsiveContainer,
   Legend,
 } from 'recharts';
-import { metrics, formatTimeShort, getTopFaultTypes, getTopFailingSystems } from '../data/mockData';
+import { formatTimeShort, getTopFaultTypes, getTopFailingSystems } from '../data/mockData';
 import { useDashboard, TIME_RANGE_LABELS } from '../context/DashboardContext';
 
 const FAULT_COLORS = ['#00e5ff', '#22c55e', '#ffd60a', '#ff3b30', '#8b5cf6', '#ff7a18'];
 
 export default function AnalyticsPage() {
-  const { timeRange } = useDashboard();
+  const { timeRange, allEvents, metrics } = useDashboard();
 
   const freqData = metrics.map((m) => ({
     time: formatTimeShort(m.timestamp),
@@ -31,8 +31,8 @@ export default function AnalyticsPage() {
     Critical: m.critical_count,
   }));
 
-  const failingSystems = getTopFailingSystems();
-  const faultTypes = getTopFaultTypes(6);
+  const failingSystems = getTopFailingSystems(allEvents);
+  const faultTypes = getTopFaultTypes(allEvents, 6);
 
   const scatterData = metrics.map((m) => ({
     cpu: m.avg_cpu,

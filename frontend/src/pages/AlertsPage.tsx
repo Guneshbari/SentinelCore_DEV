@@ -11,24 +11,24 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import SeverityBadge from '../components/shared/SeverityBadge';
-import { alerts, formatTimestamp, getActiveAlerts, getAcknowledgedAlerts } from '../data/mockData';
+import { formatTimestamp, getActiveAlerts, getAcknowledgedAlerts } from '../data/mockData';
 import { useDashboard } from '../context/DashboardContext';
 import type { Alert, Severity } from '../types/telemetry';
 
 export default function AlertsPage() {
-  const { filteredEvents } = useDashboard();
+  const { filteredEvents, alerts } = useDashboard();
   const [tab, setTab] = useState<'active' | 'acknowledged'>('active');
   const [selectedAlert, setSelectedAlert] = useState<Alert | null>(null);
 
-  const activeAlerts = useMemo(() => getActiveAlerts(), []);
-  const ackAlerts = useMemo(() => getAcknowledgedAlerts(), []);
+  const activeAlerts = useMemo(() => getActiveAlerts(alerts), [alerts]);
+  const ackAlerts = useMemo(() => getAcknowledgedAlerts(alerts), [alerts]);
   const displayed = tab === 'active' ? activeAlerts : ackAlerts;
 
   const severityCounts = useMemo(() => {
     const counts: Record<Severity, number> = { CRITICAL: 0, ERROR: 0, WARNING: 0, INFO: 0 };
     alerts.filter((a) => !a.acknowledged).forEach((a) => counts[a.severity]++);
     return counts;
-  }, []);
+  }, [alerts]);
 
   const summaryCards: { severity: Severity; cssClass: string }[] = [
     { severity: 'CRITICAL', cssClass: 'severity-border-critical' },

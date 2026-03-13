@@ -8,9 +8,11 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { getTopFaultTypes } from '../../data/mockData';
+import { useDashboard } from '../../context/DashboardContext';
 
 export default function FaultTypesChart() {
-  const data = getTopFaultTypes();
+  const { allEvents } = useDashboard();
+  const data = getTopFaultTypes(allEvents);
 
   return (
     <div className="glass-panel panel-glow hover-lift rounded-xl p-5 animate-fade-in">

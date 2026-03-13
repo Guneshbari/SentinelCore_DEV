@@ -8,9 +8,11 @@ import {
   ResponsiveContainer,
   Legend,
 } from 'recharts';
-import { metrics, formatTimeShort } from '../../data/mockData';
+import { formatTimeShort } from '../../data/mockData';
+import { useDashboard } from '../../context/DashboardContext';
 
 export default function ResourceTrendChart() {
+  const { metrics } = useDashboard();
   const data = metrics.map((m) => ({
     time: formatTimeShort(m.timestamp),
     CPU: m.avg_cpu,

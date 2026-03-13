@@ -8,7 +8,6 @@ import SeverityChart from '../components/charts/SeverityChart';
 import FaultTypesChart from '../components/charts/FaultTypesChart';
 import SeverityBadge from '../components/shared/SeverityBadge';
 import {
-  systems,
   getActiveAlerts,
   getDegradedSystems,
   getCriticalAlertCount,
@@ -17,10 +16,10 @@ import {
 import { useDashboard } from '../context/DashboardContext';
 
 export default function OverviewPage() {
-  const { filteredEvents } = useDashboard();
-  const degraded = getDegradedSystems();
-  const criticalAlerts = getCriticalAlertCount();
-  const activeAlerts = getActiveAlerts().length;
+  const { filteredEvents, systems, alerts } = useDashboard();
+  const degraded = getDegradedSystems(systems);
+  const criticalAlerts = getCriticalAlertCount(alerts);
+  const activeAlerts = getActiveAlerts(alerts).length;
 
   // Recent critical/error events from filtered set
   const recentCritical = filteredEvents

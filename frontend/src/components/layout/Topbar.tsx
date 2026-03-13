@@ -13,11 +13,11 @@ const TIME_RANGES: TimeRange[] = ['5m', '15m', '1h', '6h', '24h'];
 const REFRESH_OPTIONS: AutoRefresh[] = ['off', '5s', '10s', '30s', '1m'];
 
 export default function Topbar() {
-  const online = getOnlineSystems();
-  const degraded = getDegradedSystems();
-  const criticals = getCriticalAlertCount();
-  const totalEvents = getTotalEventCount();
-  const { timeRange, setTimeRange, autoRefresh, setAutoRefresh } = useDashboard();
+  const { systems, alerts, allEvents, timeRange, setTimeRange, autoRefresh, setAutoRefresh } = useDashboard();
+  const online = getOnlineSystems(systems);
+  const degraded = getDegradedSystems(systems);
+  const criticals = getCriticalAlertCount(alerts);
+  const totalEvents = getTotalEventCount(allEvents);
   const { user, logout } = useAuth();
 
   const [showTimeDropdown, setShowTimeDropdown] = useState(false);
