@@ -44,3 +44,6 @@ config.local.json
 .agents/
 status.txt
 status.json
+
+# Sensitive configuration - MUST NOT BE TRACKED
+config.json
