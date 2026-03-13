@@ -96,14 +96,13 @@ export default function EventsPage() {
                   >
                     <td className="py-2.5 px-3 text-text-muted whitespace-nowrap font-mono">{formatTimestamp(e.event_time)}</td>
                     <td className="py-2.5 px-3">
-                      <span className="font-mono text-signal-primary">{e.system_id}</span>
-                      <p className="text-[10px] text-text-muted">{e.hostname}</p>
+                      <span className="font-mono text-signal-primary">{e.hostname}</span>
                     </td>
                     <td className="py-2.5 px-3 text-text-secondary max-w-[150px] truncate">{e.provider_name}</td>
                     <td className="py-2.5 px-3 font-mono text-text-muted">{e.event_id}</td>
                     <td className="py-2.5 px-3"><SeverityBadge severity={e.severity} /></td>
                     <td className="py-2.5 px-3 text-text-secondary">{e.fault_type}</td>
-                    <td className="py-2.5 px-3 text-text-muted max-w-[240px] truncate">{e.fault_description}</td>
+                    <td className="py-2.5 px-3 text-text-muted max-w-[240px] truncate">{e.fault_description || e.fault_type}</td>
                   </tr>
                 ))}
               </tbody>

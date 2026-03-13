@@ -43,7 +43,7 @@ export default function EventDetailInspector({ event, onClose }: EventDetailInsp
     { label: 'Provider', value: event.provider_name },
     { label: 'Event ID', value: String(event.event_id), mono: true },
     { label: 'Fault Type', value: event.fault_type },
-    { label: 'Log Channel', value: event.log_channel },
+    { label: 'Event Hash', value: event.event_hash || '—', mono: true },
     { label: 'CPU', value: `${event.cpu_usage_percent}%` },
     { label: 'Memory', value: `${event.memory_usage_percent}%` },
     { label: 'Disk Free', value: `${event.disk_free_percent}%` },
@@ -68,7 +68,7 @@ export default function EventDetailInspector({ event, onClose }: EventDetailInsp
 
       {/* Fault description */}
       <div className="px-4 py-3 border-b border-border/50">
-        <p className="text-sm text-text-primary leading-relaxed">{event.fault_description}</p>
+        <p className="text-sm text-text-primary leading-relaxed">{event.fault_description || event.fault_type}</p>
       </div>
 
       {/* Fields grid */}
@@ -108,6 +108,16 @@ export default function EventDetailInspector({ event, onClose }: EventDetailInsp
           </ComposedChart>
         </ResponsiveContainer>
       </div>
+
+      {/* Diagnostic Context */}
+      {event.diagnostic_context && Object.keys(event.diagnostic_context).length > 0 && (
+        <div className="px-4 py-3 border-t border-border/50">
+          <h4 className="text-[11px] font-semibold text-text-muted uppercase tracking-wider mb-2">Diagnostic Context</h4>
+          <pre className="text-[10px] text-text-secondary font-mono bg-bg-primary/50 rounded-lg p-3 overflow-x-auto max-h-[160px] overflow-y-auto">
+            {JSON.stringify(event.diagnostic_context, null, 2)}
+          </pre>
+        </div>
+      )}
     </div>
   );
 }

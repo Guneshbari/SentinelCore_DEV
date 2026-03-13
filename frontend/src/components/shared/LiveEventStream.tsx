@@ -73,7 +73,7 @@ export default function LiveEventStream() {
               <SeverityBadge severity={e.severity} />
             </span>
             <span className="text-text-secondary w-[100px] shrink-0 truncate">{e.fault_type}</span>
-            <span className="text-text-muted truncate flex-1">{e.fault_description}</span>
+            <span className="text-text-muted truncate flex-1">{e.fault_description || e.provider_name}</span>
           </div>
         ))}
       </div>

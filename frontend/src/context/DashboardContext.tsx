@@ -172,6 +172,7 @@ export function DashboardProvider({ children }: DashboardProviderProps) {
       const term = searchQuery.toLowerCase();
       const matches =
         e.fault_description.toLowerCase().includes(term) ||
+        e.hostname.toLowerCase().includes(term) ||
         e.system_id.toLowerCase().includes(term) ||
         e.fault_type.toLowerCase().includes(term) ||
         e.provider_name.toLowerCase().includes(term) ||

@@ -103,7 +103,7 @@ export default function OverviewPage() {
               >
                 <SeverityBadge severity={e.severity} />
                 <div className="flex-1 min-w-0">
-                  <p className="text-xs text-text-primary truncate">{e.fault_description}</p>
+                  <p className="text-xs text-text-primary truncate">{e.fault_description || e.fault_type}</p>
                   <p className="text-[10px] text-text-muted mt-0.5">{e.hostname} · {formatTimestamp(e.event_time)}</p>
                 </div>
               </div>

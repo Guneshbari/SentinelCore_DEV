@@ -13,8 +13,8 @@ export interface TelemetryEvent {
   memory_usage_percent: number;
   disk_free_percent: number;
   event_time: string;
-  created_at: string;
-  log_channel: string;
+  event_hash?: string;
+  diagnostic_context?: Record<string, unknown>;
 }
 
 export type SystemStatus = 'online' | 'degraded' | 'offline';
