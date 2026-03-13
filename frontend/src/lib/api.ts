@@ -71,6 +71,23 @@ export async function fetchSystemMetrics(): Promise<SystemMetrics> {
   return fetchJSON<SystemMetrics>('/system-metrics');
 }
 
+// ── Pipeline health ────────────────────────────────────
+
+export interface PipelineHealthData {
+  events_per_sec: number;
+  eps_change_pct: number;
+  avg_latency_ms: number;
+  kafka_lag: number;
+  lag_status: string;
+  db_write_rate: number;
+  trend_eps: { time: string; value: number }[];
+  trend_latency: { time: string; value: number }[];
+}
+
+export async function fetchPipelineHealth(): Promise<PipelineHealthData> {
+  return fetchJSON<PipelineHealthData>('/pipeline-health');
+}
+
 // ── Health check ────────────────────────────────────────
 
 export async function checkAPIHealth(): Promise<boolean> {
