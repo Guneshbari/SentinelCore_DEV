@@ -412,7 +412,7 @@ def get_resource_snapshot() -> Dict:
         disk = psutil.disk_usage('/')
         return {
             'cpu_usage_percent':    round(psutil.cpu_percent(interval=0.1), 2),
-            'memory_usage_percent': round(mem.percent, 2),
+            'memory_usage_percent': round((mem.used / mem.total) * 100, 2),
             'disk_free_percent':    round(100.0 - disk.percent, 2)
         }
     except Exception:
@@ -890,14 +890,13 @@ def run_collector():
             resources = get_resource_snapshot()
 
             pending_checkpoints: Dict[str, int] = {}
+            batch_events = []
+            channel_raw_events = {}
 
             for channel in TARGET_LOGS:
                 raw_events = collect_events_from_channel(channel, checkpoint_mgr.get(channel))
-                if not raw_events:
-                    continue
-
-                print(f"  {channel}: {len(raw_events)} new event(s)")
-                batch_events = []
+                if raw_events:
+                    print(f"  {channel}: {len(raw_events)} new event(s)")
 
                 for ev in raw_events:
                     h = generate_event_hash(ev['raw_xml'], system_id, ev['metadata']['event_record_id'])
@@ -934,31 +933,33 @@ def run_collector():
                         'raw_xml':              ev['raw_xml']
                     })
 
-                if not batch_events:
-                    continue
+                channel_raw_events[channel] = raw_events
 
-                uptime = get_uptime_seconds()
-                payload = {
-                    'system_id':           system_id,
-                    'hostname':            hostname,
-                    'boot_session_id':     boot_session,
-                    'os_version':          os_version,
-                    'uptime_seconds':      uptime,
-                    'collector_version':   COLLECTOR_VERSION,
-                    'timestamp_collected': datetime.now(timezone.utc).isoformat(),
-                    'system_info': {
-                        'system_id': system_id,
-                        'hostname': hostname,
-                        'ip_address': ip_address,
-                        'agent_version': AGENT_VERSION,
-                        'os_version': os_version,
-                        'uptime_seconds': uptime
-                    },
-                    'events':              batch_events
-                }
+            # ── Construct unified payload for the whole cycle ──────────
+            uptime = get_uptime_seconds()
+            payload = {
+                'system_id':           system_id,
+                'hostname':            hostname,
+                'boot_session_id':     boot_session,
+                'os_version':          os_version,
+                'uptime_seconds':      uptime,
+                'collector_version':   COLLECTOR_VERSION,
+                'timestamp_collected': datetime.now(timezone.utc).isoformat(),
+                'system_info': {
+                    'system_id': system_id,
+                    'hostname': hostname,
+                    'ip_address': ip_address,
+                    'agent_version': AGENT_VERSION,
+                    'os_version': os_version,
+                    'uptime_seconds': uptime
+                },
+                'events':              batch_events
+            }
 
-                if strategy.send(payload):
-                    pending_checkpoints[channel] = max(e['metadata']['event_record_id'] for e in raw_events)
+            if strategy.send(payload):
+                for channel, raw_events in channel_raw_events.items():
+                    if raw_events:
+                        pending_checkpoints[channel] = max(e['metadata']['event_record_id'] for e in raw_events)
 
             # ── Save checkpoint once per cycle (NOT per channel) ──────────
             if pending_checkpoints:

@@ -139,14 +139,15 @@ def get_systems():
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute("""
                 WITH latest AS (
-                    SELECT DISTINCT ON (system_id)
+                    SELECT 
                         system_id,
+                        hostname,
                         cpu_usage_percent,
                         memory_usage_percent,
                         disk_free_percent,
-                        ingested_at
-                    FROM events
-                    ORDER BY system_id, ingested_at DESC
+                        os_version,
+                        last_seen as ingested_at
+                    FROM system_heartbeats
                 ),
                 counts AS (
                     SELECT system_id, COUNT(*) AS total_events
@@ -156,16 +157,17 @@ def get_systems():
                 critical_counts AS (
                     SELECT system_id, COUNT(*) AS critical_count
                     FROM events
-                    WHERE severity IN ('CRITICAL', 'ERROR')
+                    WHERE severity = 'CRITICAL'
                       AND ingested_at > NOW() - INTERVAL '1 hour'
                     GROUP BY system_id
                 )
                 SELECT
                     l.system_id,
-                    l.system_id AS hostname,
+                    l.hostname,
                     l.cpu_usage_percent,
                     l.memory_usage_percent,
                     l.disk_free_percent,
+                    l.os_version,
                     l.ingested_at AS last_seen,
                     COALESCE(c.total_events, 0) AS total_events,
                     COALESCE(cc.critical_count, 0) AS critical_count
@@ -188,9 +190,10 @@ def get_systems():
 
         last_seen = row.get("last_seen")
         if isinstance(last_seen, datetime):
-            # If last seen is more than 2 hours ago, mark offline
+            # If last seen is more than 2 minutes ago, mark offline
+            # This enables live detection of stopped agents
             diff = (datetime.now(timezone.utc) - last_seen.replace(tzinfo=timezone.utc)).total_seconds()
-            if diff > 7200:
+            if diff > 120:
                 status = "offline"
             last_seen = last_seen.isoformat()
 
@@ -201,7 +204,7 @@ def get_systems():
             "cpu_usage_percent": float(row.get("cpu_usage_percent", 0)),
             "memory_usage_percent": float(row.get("memory_usage_percent", 0)),
             "disk_free_percent": float(row.get("disk_free_percent", 0)),
-            "os_version": "Windows",
+            "os_version": row.get("os_version", "Windows"),
             "last_seen": last_seen,
             "ip_address": "",
             "total_events": row.get("total_events", 0),
