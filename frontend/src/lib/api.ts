@@ -13,7 +13,7 @@ import type {
   FaultTypeCount,
 } from '../types/telemetry';
 
-const API_BASE = 'http://localhost:8080';
+const API_BASE = 'http://172.30.178.75:8080';
 
 async function fetchJSON<T>(endpoint: string): Promise<T> {
   const res = await fetch(`${API_BASE}${endpoint}`);
