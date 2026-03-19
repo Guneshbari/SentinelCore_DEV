@@ -1,12 +1,54 @@
-# Windows Log Collector Dependencies
-pywin32>=306; sys_platform == 'win32'
-psutil>=5.9.0
-requests>=2.31.0
+# SentinelCore — Python Dependencies
+# Pinned to minimum versions matching the active .venv (March 2026)
+#
+# Component map
+# ─────────────────────────────────────────────────────────────────────────────
+#  src/collector.py          → pywin32, psutil, requests, kafka-python-ng
+#  src/kafka_to_postgres.py  → kafka-python-ng, psycopg2-binary
+#  src/api_server.py         → fastapi, uvicorn, psycopg2-binary, pydantic
+#  src/feature_builder.py    → psycopg2-binary
+#  src/sentinel_utils.py     → psycopg2-binary
+#  src/analyzer.py           → stdlib only (json, re, argparse, xml, etc.)
+#  src/shared_constants.py   → stdlib only
+#  tests/test_e2e.py         → pytest, requests
+#  tests/test_live_errors.py → pytest, requests (+ pywin32 on Windows)
+#  tests/validate_collector.py → stdlib only
+#
+# Frontend (frontend/)
+# ─────────────────────────────────────────────────────────────────────────────
+#  Managed by npm/Node.js — NOT pip-installable.
+#  Install with:  cd frontend && npm install
+#  Key npm packages: react@19, react-dom, react-router-dom, recharts,
+#                    tailwindcss@4, three.js, lucide-react, firebase,
+#                    vite@7, typescript@5.9, eslint@9
+# ─────────────────────────────────────────────────────────────────────────────
 
-# Testing
-pytest>=7.0.0
+# ── Windows-only system integration (collector, tests) ───────────────────────
+pywin32>=311; sys_platform == "win32"
 
-# Kafka to PostgreSQL Consumer Dependencies
-kafka-python-ng>=2.2.0
-psycopg2-binary>=2.9.0
-prometheus-client>=0.17.0
+# ── System metrics (collector, tests) ────────────────────────────────────────
+psutil>=7.2.2
+
+# ── HTTP client (collector → health-check, test_e2e HTTP assertions) ─────────
+requests>=2.32.5
+
+# ── Kafka producer / consumer (collector + kafka_to_postgres) ────────────────
+kafka-python-ng>=2.2.3
+
+# ── PostgreSQL driver (kafka_to_postgres, feature_builder, sentinel_utils,
+#    api_server) ───────────────────────────────────────────────────────────────
+psycopg2-binary>=2.9.11
+
+# ── FastAPI web framework + ASGI server (api_server) ─────────────────────────
+fastapi>=0.135.1
+uvicorn[standard]>=0.41.0
+
+# ── Data validation — pulled by FastAPI; used for request/response models ─────
+pydantic>=2.12.5
+
+# ── Testing framework (tests/) ───────────────────────────────────────────────
+pytest>=9.0.2
+pytest-timeout>=2.3.1
+
+# ── Optional: structured logging / pretty output (used in development) ────────
+# rich>=13.9.4        # Uncomment if you want rich console output in scripts

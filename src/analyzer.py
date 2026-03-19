@@ -13,12 +13,18 @@ Modes:
 
 import json
 import sys
+import os
 import re
 import argparse
 import xml.etree.ElementTree as ET
 from collections import Counter, defaultdict
 from datetime import datetime
-from typing import List, Dict, Optional, Tuple
+from itertools import islice
+from typing import List, Dict, Optional, Tuple, cast
+
+# Ensure sibling modules (shared_constants, sentinel_utils) are importable
+# regardless of the working directory the IDE uses as project root.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from shared_constants import LEVEL_NAMES, CPU_ALERT_THRESHOLD, MEMORY_ALERT_THRESHOLD, DISK_LOW_THRESHOLD
 
@@ -485,15 +491,17 @@ def extract_event_description(raw_xml: str) -> Optional[str]:
         ns = {'e': 'http://schemas.microsoft.com/win/2004/08/events/event'}
 
         msg = root.find('.//e:RenderingInfo/e:Message', ns)
-        if msg is not None and msg.text:
+        if msg is not None and msg.text is not None:
             return msg.text.strip()
 
         # Fallback: first 3 EventData values
-        parts = [
-            d.text.strip()
-            for d in (root.find('.//e:EventData', ns) or root.find('.//EventData') or [])
-            if hasattr(d, 'text') and d.text
-        ][:3]
+        event_data = root.find('.//e:EventData', ns) or root.find('.//EventData')
+        parts: List[str] = []
+        if event_data is not None:
+            children: List[ET.Element] = list(event_data)
+            for d in islice(children, 3):
+                if d.text is not None:
+                    parts.append(d.text.strip())
         return ' | '.join(parts) or None
 
     except ET.ParseError:
@@ -609,7 +617,10 @@ def print_report(data: Dict):
         if err:  print(f"    ✗ ERROR    : {err}")
         if warn: print(f"    ⚠ WARNING  : {warn}")
 
-        pattern_counts = Counter((e['provider_name'], e['event_id'], e['title']) for e in errors)
+        _pc_keys: List[Tuple[str, int, str]] = [
+            (e['provider_name'], e['event_id'], e['title']) for e in errors
+        ]
+        pattern_counts = cast(Counter[Tuple[str, int, str]], Counter(_pc_keys))
 
         print(f"\n  Unique Patterns ({len(pattern_counts)}):")
         print("  " + "-" * 76)
@@ -659,7 +670,10 @@ def export_detailed_report(data: Dict, output_file: str = "event_report.txt"):
     errors          = detect_errors(events)
     resource_alerts = generate_resource_alerts(events)
     insights        = analyze_patterns(events)
-    pattern_counts  = Counter((e['provider_name'], e['event_id'], e['title']) for e in errors)
+    _pc_keys: List[Tuple[str, int, str]] = [
+        (e['provider_name'], e['event_id'], e['title']) for e in errors
+    ]
+    pattern_counts = cast(Counter[Tuple[str, int, str]], Counter(_pc_keys))
 
     div  = "=" * 80
     dash = "-" * 80
@@ -750,8 +764,9 @@ def export_detailed_report(data: Dict, output_file: str = "event_report.txt"):
             w(f"       Resources: CPU={ev.get('cpu_usage_percent', 0):.1f}%  MEM={ev.get('memory_usage_percent', 0):.1f}%  DISK={ev.get('disk_free_percent', 0):.1f}% free")
 
             desc = extract_event_description(ev.get('raw_xml', ''))
-            if desc:
-                w(f"       Desc    : {desc[:300]}")
+            if desc is not None and desc:
+                desc_str: str = desc
+                w(f"       Desc    : {desc_str[:300]}")
 
             if lvl in (1, 2, 3):
                 kb_entry = error_map.get((provider, event_id))
