@@ -20,7 +20,7 @@ from typing import Any, Dict, Optional
 from kafka import KafkaConsumer          # type: ignore
 from kafka.errors import KafkaError      # type: ignore
 import psycopg2
-from psycopg2.extras import Json
+from psycopg2.extras import Json, execute_values
 
 from shared_constants import (
     DB_CONFIG,
@@ -29,6 +29,8 @@ from shared_constants import (
     CIRCUIT_BREAKER_THRESHOLD,
     CIRCUIT_BREAKER_RESET_SECS,
     DB_QUERY_TIMEOUT_SECONDS,
+    DB_INSERT_BATCH_SIZE,
+    RAW_XML_MAX_BYTES,
 )
 from sentinel_utils import (
     retry_with_backoff,
@@ -140,6 +142,10 @@ def setup_database(conn: Any) -> None:
                 ON events(ingested_at DESC);
             CREATE INDEX IF NOT EXISTS idx_events_severity
                 ON events(severity);
+            -- Composite index for feature_builder and API range queries:
+            --   WHERE system_id = X AND ingested_at > NOW() - interval
+            CREATE INDEX IF NOT EXISTS idx_events_system_ingested
+                ON events(system_id, ingested_at DESC);
         """)
 
         # ML-enrichment columns — ADD IF NOT EXISTS (backward compatible)
@@ -272,37 +278,25 @@ def process_message(conn: Any, msg: Dict[str, Any]) -> bool:
                     system_id,
                 )
 
-            # ── 2. Events — idempotent inserts ─────────────────────────────
+            # ── 2. Events — batch insert via execute_values (one round-trip) ──
+            # Builds all rows first, then inserts in chunks of DB_INSERT_BATCH_SIZE.
+            # ON CONFLICT DO NOTHING ensures idempotency on duplicate event_hash.
+            rows = []
             for ev in events:
-                raw_msg    = ev.get("event_message") or ""
+                raw_msg    = (ev.get("event_message") or "")
+                # Cap raw_xml to bound TEXT column growth at scale
+                raw_xml    = (ev.get("raw_xml") or "")
+                if len(raw_xml) > RAW_XML_MAX_BYTES:
+                    raw_xml = raw_xml[:RAW_XML_MAX_BYTES]
+
                 parsed     = clean_message(raw_msg)
                 normalized = parsed.lower()
 
                 fault_subtype    = ev.get("fault_subtype") or ev.get("fault_type") or "UNKNOWN"
                 confidence_score = _safe_float(ev.get("confidence_score"), 0.20)
-                # Clamp to valid range [0.0, 1.0]
                 confidence_score = max(0.0, min(1.0, confidence_score))
 
-                cur.execute("""
-                    INSERT INTO events (
-                        system_id, hostname, log_channel, event_record_id,
-                        provider_name, event_id, level, task, opcode, keywords,
-                        process_id, thread_id, severity, fault_type,
-                        diagnostic_context, event_hash, raw_xml,
-                        cpu_usage_percent, memory_usage_percent, disk_free_percent,
-                        event_message, parsed_message, normalized_message,
-                        fault_subtype, confidence_score
-                    ) VALUES (
-                        %s, %s, %s, %s,
-                        %s, %s, %s, %s, %s, %s,
-                        %s, %s, %s, %s,
-                        %s, %s, %s,
-                        %s, %s, %s,
-                        %s, %s, %s,
-                        %s, %s
-                    )
-                    ON CONFLICT (event_hash) DO NOTHING;
-                """, (
+                rows.append((
                     system_id,
                     hostname,
                     ev.get("log_channel"),
@@ -319,7 +313,7 @@ def process_message(conn: Any, msg: Dict[str, Any]) -> bool:
                     ev.get("fault_type"),
                     Json(ev.get("diagnostic_context") or {}),
                     ev.get("event_hash"),
-                    ev.get("raw_xml"),
+                    raw_xml,
                     _safe_float(ev.get("cpu_usage_percent")),
                     _safe_float(ev.get("memory_usage_percent")),
                     _safe_float(ev.get("disk_free_percent"), 100.0),
@@ -329,6 +323,27 @@ def process_message(conn: Any, msg: Dict[str, Any]) -> bool:
                     fault_subtype,
                     confidence_score,
                 ))
+
+            # Insert in chunks — one round-trip per DB_INSERT_BATCH_SIZE rows
+            for i in range(0, len(rows), DB_INSERT_BATCH_SIZE):
+                chunk = rows[i : i + DB_INSERT_BATCH_SIZE]
+                execute_values(
+                    cur,
+                    """
+                    INSERT INTO events (
+                        system_id, hostname, log_channel, event_record_id,
+                        provider_name, event_id, level, task, opcode, keywords,
+                        process_id, thread_id, severity, fault_type,
+                        diagnostic_context, event_hash, raw_xml,
+                        cpu_usage_percent, memory_usage_percent, disk_free_percent,
+                        event_message, parsed_message, normalized_message,
+                        fault_subtype, confidence_score
+                    ) VALUES %s
+                    ON CONFLICT (event_hash) DO NOTHING
+                    """,
+                    chunk,
+                    page_size=DB_INSERT_BATCH_SIZE,
+                )
 
         conn.commit()
         _db_cb.record_success()

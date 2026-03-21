@@ -29,6 +29,8 @@ from shared_constants import (
     DB_CONFIG,
     API_RESPONSE_TIMEOUT_SECONDS,
     DB_QUERY_TIMEOUT_SECONDS,
+    DB_POOL_MIN_CONN,
+    DB_POOL_MAX_CONN,
 )
 from sentinel_utils import (
     retry_with_backoff,
@@ -85,15 +87,28 @@ app.add_middleware(
 # DB CONNECTION POOL
 # ============================================================================
 
-_pool: Optional[psycopg2.pool.SimpleConnectionPool] = None
+_pool: Optional[psycopg2.pool.ThreadedConnectionPool] = None
+_pool_lock = __import__('threading').Lock()
 
 
-def _get_pool() -> psycopg2.pool.SimpleConnectionPool:
+def _get_pool() -> psycopg2.pool.ThreadedConnectionPool:
+    """
+    Thread-safe connection pool.
+    FastAPI runs sync endpoints in a thread pool — SimpleConnectionPool is
+    NOT safe there.  ThreadedConnectionPool uses an internal lock so each
+    thread gets its own connection safely.
+    Sized from shared_constants so it can be tuned via env var without
+    touching code.
+    """
     global _pool
     if _pool is None:
-        _pool = psycopg2.pool.SimpleConnectionPool(
-            minconn=1, maxconn=10, **DB_CONFIG
-        )
+        with _pool_lock:
+            if _pool is None:          # double-checked locking
+                _pool = psycopg2.pool.ThreadedConnectionPool(
+                    minconn=DB_POOL_MIN_CONN,
+                    maxconn=DB_POOL_MAX_CONN,
+                    **DB_CONFIG,
+                )
     return _pool
 
 
@@ -113,6 +128,7 @@ def _on_shutdown() -> None:
     global _pool
     if _pool:
         _pool.closeall()
+        _pool = None
 
 
 # ============================================================================

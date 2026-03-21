@@ -101,61 +101,84 @@ def fetch_active_systems(conn: Any) -> List[Dict]:
         return [dict(r) for r in cur.fetchall()]
 
 
-def fetch_event_stats(conn: Any, system_id: str, lookback_secs: int) -> Dict:
+def _safe_int(v: Any, fb: int = 0) -> int:
+    try:
+        return int(v) if v is not None else fb
+    except (TypeError, ValueError):
+        return fb
+
+
+def _safe_float(v: Any, fb: float = 0.0) -> float:
+    try:
+        return float(v) if v is not None else fb
+    except (TypeError, ValueError):
+        return fb
+
+
+def _zero_stats() -> Dict:
+    return {
+        "total_events":        0,
+        "critical_count":      0,
+        "error_count":         0,
+        "warning_count":       0,
+        "info_count":          0,
+        "dominant_fault_type": "NONE",
+        "avg_confidence":      0.20,
+    }
+
+
+def fetch_all_event_stats(conn: Any, system_ids: List[str], lookback_secs: int) -> Dict[str, Dict]:
     """
-    Aggregate event counts for one system over the last N seconds.
-    Always returns a fully-populated dict — never NULL values.
+    Single aggregation query across ALL active systems.
+    Replaces the old N+1 pattern (one COUNT query per system).
+
+    Returns a dict keyed by system_id. Systems with no events in the window
+    get a zeroed default dict — never None or missing keys.
+
+    Scales to 1000+ systems because it is ONE query regardless of system count.
     """
+    if not system_ids:
+        return {}
+
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute("""
             SELECT
-                COUNT(*)                                                         AS total_events,
-                COUNT(*) FILTER (WHERE severity = 'CRITICAL')                   AS critical_count,
+                system_id,
+                COUNT(*)                                                          AS total_events,
+                COUNT(*) FILTER (WHERE severity = 'CRITICAL')                    AS critical_count,
                 COUNT(*) FILTER (WHERE severity = 'ERROR')                       AS error_count,
                 COUNT(*) FILTER (WHERE severity = 'WARNING')                     AS warning_count,
                 COUNT(*) FILTER (WHERE severity = 'INFO')                        AS info_count,
                 MODE() WITHIN GROUP (ORDER BY fault_type)                        AS dominant_fault_type,
                 ROUND(AVG(COALESCE(confidence_score, 0.20))::numeric, 2)         AS avg_confidence
             FROM events
-            WHERE system_id = %s
+            WHERE system_id = ANY(%s)
               AND ingested_at > NOW() - (%s || ' seconds')::interval
-        """, (system_id, str(lookback_secs)))
+            GROUP BY system_id
+        """, (system_ids, str(lookback_secs)))
 
-        row = cur.fetchone()
+        rows = cur.fetchall()
 
-    # Defensive: return zeroed defaults on NULL or missing row
-    if not row or row.get("total_events") is None:
-        return {
-            "total_events":       0,
-            "critical_count":     0,
-            "error_count":        0,
-            "warning_count":      0,
-            "info_count":         0,
-            "dominant_fault_type": "NONE",
-            "avg_confidence":     0.20,
+    result: Dict[str, Dict] = {sid: _zero_stats() for sid in system_ids}
+    for row in rows:
+        sid = row["system_id"]
+        result[sid] = {
+            "total_events":        _safe_int(row["total_events"]),
+            "critical_count":      _safe_int(row["critical_count"]),
+            "error_count":         _safe_int(row["error_count"]),
+            "warning_count":       _safe_int(row["warning_count"]),
+            "info_count":          _safe_int(row["info_count"]),
+            "dominant_fault_type": row.get("dominant_fault_type") or "NONE",
+            "avg_confidence":      _safe_float(row.get("avg_confidence"), 0.20),
         }
+    return result
 
-    def _i(v: Any) -> int:
-        try:
-            return int(v) if v is not None else 0
-        except (TypeError, ValueError):
-            return 0
 
-    def _f(v: Any, fb: float = 0.0) -> float:
-        try:
-            return float(v) if v is not None else fb
-        except (TypeError, ValueError):
-            return fb
-
-    return {
-        "total_events":       _i(row["total_events"]),
-        "critical_count":     _i(row["critical_count"]),
-        "error_count":        _i(row["error_count"]),
-        "warning_count":      _i(row["warning_count"]),
-        "info_count":         _i(row["info_count"]),
-        "dominant_fault_type": row.get("dominant_fault_type") or "NONE",
-        "avg_confidence":     _f(row.get("avg_confidence"), 0.20),
-    }
+# Keep single-system variant for backward compatibility / direct calls
+def fetch_event_stats(conn: Any, system_id: str, lookback_secs: int) -> Dict:
+    """Single-system wrapper around fetch_all_event_stats."""
+    results = fetch_all_event_stats(conn, [system_id], lookback_secs)
+    return results.get(system_id, _zero_stats())
 
 
 def write_snapshot(conn: Any, system_id: str, hb: Dict, stats: Dict) -> bool:
@@ -223,10 +246,14 @@ def run_cycle(conn: Any, cycle: int) -> tuple:
         logger.info("[Cycle %d] No systems in heartbeats — skipping", cycle)
         return conn, 0, 0
 
+    # Single bulk query for all systems — O(1) queries regardless of system count
+    system_ids = [hb["system_id"] for hb in systems]
+    all_stats  = fetch_all_event_stats(conn, system_ids, SNAPSHOT_LOOKBACK_SECS)
+
     for hb in systems:
-        sid = hb["system_id"]
+        sid   = hb["system_id"]
+        stats = all_stats.get(sid, _zero_stats())
         try:
-            stats = fetch_event_stats(conn, sid, SNAPSHOT_LOOKBACK_SECS)
             if write_snapshot(conn, sid, hb, stats):
                 snapshots_ok += 1
                 logger.debug(
