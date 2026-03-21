@@ -16,10 +16,38 @@ import type {
 
 const configuredApiBase = import.meta.env.VITE_SENTINEL_API_BASE_URL?.trim();
 const API_BASE = (configuredApiBase || 'http://172.30.178.75:8080').replace(/\/+$/, '');
+const configuredApiBearerToken = import.meta.env.VITE_SENTINEL_API_BEARER_TOKEN?.trim() || null;
 export const RECENT_EVENTS_LIMIT = Number.parseInt(
   import.meta.env.VITE_SENTINEL_RECENT_EVENTS_LIMIT ?? '1000',
   10,
 );
+export const hasConfiguredApiBearerToken = Boolean(configuredApiBearerToken);
+
+let apiSessionAuthenticated = false;
+
+if (!configuredApiBase) {
+  console.warn('SentinelCore frontend is using the fallback API base URL. Set VITE_SENTINEL_API_BASE_URL for production deployments.');
+}
+
+export function syncApiSessionAuth(isAuthenticated: boolean): void {
+  apiSessionAuthenticated = isAuthenticated;
+}
+
+function buildHeaders(): HeadersInit | undefined {
+  if (!apiSessionAuthenticated || !configuredApiBearerToken) {
+    return undefined;
+  }
+
+  return {
+    Authorization: `Bearer ${configuredApiBearerToken}`,
+  };
+}
+
+function sanitizeTelemetryEvent(event: TelemetryEvent): TelemetryEvent {
+  const safeEvent = { ...event };
+  delete safeEvent.raw_xml;
+  return safeEvent;
+}
 
 function buildEndpoint(
   endpoint: string,
@@ -38,8 +66,13 @@ async function fetchJSON<T>(
   endpoint: string,
   query?: Record<string, string | number | undefined>,
 ): Promise<T> {
-  const res = await fetch(buildEndpoint(endpoint, query));
+  const res = await fetch(buildEndpoint(endpoint, query), {
+    headers: buildHeaders(),
+  });
   if (!res.ok) {
+    if (res.status === 401 || res.status === 403) {
+      throw new Error('API authorization failed. Configure VITE_SENTINEL_API_BEARER_TOKEN to match the backend bearer token.');
+    }
     throw new Error(`API error ${res.status}: ${res.statusText}`);
   }
   return res.json();
@@ -47,8 +80,27 @@ async function fetchJSON<T>(
 
 // ── Core data fetchers ──────────────────────────────────
 
-export async function fetchEvents(limit = RECENT_EVENTS_LIMIT): Promise<TelemetryEvent[]> {
-  return fetchJSON<TelemetryEvent[]>('/events', { limit });
+interface FetchEventsOptions {
+  limit?: number;
+  includeRawXml?: boolean;
+}
+
+export async function fetchEvents(
+  limitOrOptions: number | FetchEventsOptions = RECENT_EVENTS_LIMIT,
+): Promise<TelemetryEvent[]> {
+  const options = typeof limitOrOptions === 'number'
+    ? { limit: limitOrOptions, includeRawXml: false }
+    : {
+        limit: limitOrOptions.limit ?? RECENT_EVENTS_LIMIT,
+        includeRawXml: limitOrOptions.includeRawXml ?? false,
+      };
+
+  const events = await fetchJSON<TelemetryEvent[]>('/events', {
+    limit: options.limit,
+    include_raw_xml: options.includeRawXml ? 1 : 0,
+  });
+
+  return options.includeRawXml ? events : events.map(sanitizeTelemetryEvent);
 }
 
 export async function fetchSystems(): Promise<SystemInfo[]> {
@@ -130,7 +182,9 @@ export async function fetchPipelineHealth(): Promise<PipelineHealthData> {
 
 export async function checkAPIHealth(): Promise<boolean> {
   try {
-    const res = await fetch(buildEndpoint('/health'));
+    const res = await fetch(buildEndpoint('/health'), {
+      headers: buildHeaders(),
+    });
     return res.ok;
   } catch {
     return false;

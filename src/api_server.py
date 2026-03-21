@@ -363,7 +363,7 @@ _log_security_posture()
 # ============================================================================
 
 @app.get("/events")
-def get_events(limit: int = 100) -> List[Dict]:
+def get_events(limit: int = 100, include_raw_xml: bool = True) -> List[Dict]:
     t0 = time.time()
     try:
         limit = _bounded_limit(limit)
@@ -395,6 +395,8 @@ def get_events(limit: int = 100) -> List[Dict]:
                 row["diagnostic_context"] = diag
             row["fault_description"] = desc
             row["ingested_at"] = _iso(row.get("ingested_at"))
+            if not include_raw_xml:
+                row.pop("raw_xml", None)
 
         _log_req("/events", (time.time() - t0) * 1000, "ok", len(rows))
         return rows

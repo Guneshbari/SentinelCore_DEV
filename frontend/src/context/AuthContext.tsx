@@ -9,6 +9,7 @@ import {
 } from 'firebase/auth';
 import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
+import { hasConfiguredApiBearerToken, syncApiSessionAuth } from '../lib/api';
 
 // ── Types ───────────────────────────────────────────────
 interface User {
@@ -73,6 +74,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   // Listen for Firebase auth state changes
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
+      syncApiSessionAuth(!!fbUser);
       if (fbUser) {
         // Try to get extra profile data from Firestore
         try {
@@ -87,8 +89,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
           } else {
             setUser(mapFirebaseUser(fbUser));
           }
-        } catch {
-          // Fallback if Firestore read fails
+        } catch (error) {
+          console.warn('SentinelCore auth profile fallback:', error);
           setUser(mapFirebaseUser(fbUser));
         }
       } else {
@@ -99,6 +101,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
     return () => unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (user && !hasConfiguredApiBearerToken) {
+      console.warn(
+        'SentinelCore frontend login is active, but VITE_SENTINEL_API_BEARER_TOKEN is not configured. Protected backend deployments may reject API requests.',
+      );
+    }
+  }, [user]);
 
   const login = useCallback(async (email: string, password: string) => {
     await signInWithEmailAndPassword(auth, email, password);
@@ -125,11 +135,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
       email,
       uid: credential.user.uid,
     });
+    syncApiSessionAuth(true);
   }, []);
 
   const logout = useCallback(async () => {
     await signOut(auth);
     setUser(null);
+    syncApiSessionAuth(false);
   }, []);
 
   return (
