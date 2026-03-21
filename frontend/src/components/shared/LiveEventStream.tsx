@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import { Radio } from 'lucide-react';
 import SeverityBadge from './SeverityBadge';
 import { formatTimestamp } from '../../data/mockData';
@@ -9,26 +9,26 @@ const MAX_VISIBLE = 12;
 
 export default function LiveEventStream() {
   const { filteredEvents } = useDashboard();
-  const [streamEvents, setStreamEvents] = useState<TelemetryEvent[]>(filteredEvents.slice(0, 5));
+  const sortedRecentEvents = useMemo(
+    () => [...filteredEvents]
+      .sort((a, b) => new Date(b.event_time).getTime() - new Date(a.event_time).getTime())
+      .slice(0, MAX_VISIBLE),
+    [filteredEvents],
+  );
   const [isLive, setIsLive] = useState(true);
+  const [pausedEvents, setPausedEvents] = useState<TelemetryEvent[]>([]);
   const containerRef = useRef<HTMLDivElement>(null);
+  const streamEvents = isLive ? sortedRecentEvents : pausedEvents;
 
-  useEffect(() => {
-    if (!isLive) return;
-    const interval = setInterval(() => {
-      setStreamEvents((prev) => {
-        const nextIdx = prev.length % filteredEvents.length;
-        if (filteredEvents.length === 0) return prev;
-        const newEvent = {
-          ...filteredEvents[nextIdx],
-          event_record_id: Date.now() + Math.random(),
-          event_time: new Date().toISOString(),
-        };
-        return [newEvent, ...prev].slice(0, MAX_VISIBLE);
-      });
-    }, 3000);
-    return () => clearInterval(interval);
-  }, [isLive, filteredEvents]);
+  function toggleLiveState() {
+    if (isLive) {
+      setPausedEvents(sortedRecentEvents);
+      setIsLive(false);
+      return;
+    }
+
+    setIsLive(true);
+  }
 
   return (
     <div className="glass-panel panel-glow rounded-xl overflow-hidden animate-fade-in">
@@ -45,7 +45,7 @@ export default function LiveEventStream() {
           )}
         </div>
         <button
-          onClick={() => setIsLive(!isLive)}
+          onClick={toggleLiveState}
           className={`px-2.5 py-1 text-[10px] font-semibold rounded-md transition-colors ${
             isLive
               ? 'bg-accent-red/15 text-accent-red hover:bg-accent-red/25'

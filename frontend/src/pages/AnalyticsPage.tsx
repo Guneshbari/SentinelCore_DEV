@@ -21,7 +21,14 @@ import { useDashboard, TIME_RANGE_LABELS } from '../context/DashboardContext';
 const FAULT_COLORS = ['#00e5ff', '#22c55e', '#ffd60a', '#ff3b30', '#8b5cf6', '#ff7a18'];
 
 export default function AnalyticsPage() {
-  const { timeRange, allEvents, metrics } = useDashboard();
+  const {
+    timeRange,
+    allEvents,
+    metrics,
+    systemFailures,
+    faultDistribution,
+    canUseAggregateViews,
+  } = useDashboard();
 
   const freqData = metrics.map((m) => ({
     time: formatTimeShort(m.timestamp),
@@ -31,8 +38,14 @@ export default function AnalyticsPage() {
     Critical: m.critical_count,
   }));
 
-  const failingSystems = getTopFailingSystems(allEvents);
-  const faultTypes = getTopFaultTypes(allEvents, 6);
+  const failingSystems = canUseAggregateViews ? systemFailures : getTopFailingSystems(allEvents);
+  const faultTypes = canUseAggregateViews ? faultDistribution.slice(0, 6) : getTopFaultTypes(allEvents, 6);
+  const faultSubtitle = canUseAggregateViews
+    ? 'Server-backed breakdown for the selected time range'
+    : 'Derived from the recent event sample';
+  const systemsSubtitle = canUseAggregateViews
+    ? 'Ranked by critical + error events in the selected time range'
+    : 'Ranked from the recent event sample';
 
   const scatterData = metrics.map((m) => ({
     cpu: m.avg_cpu,
@@ -77,7 +90,7 @@ export default function AnalyticsPage() {
         {/* Top Failing Systems */}
         <div className="glass-panel panel-glow hover-lift rounded-xl p-5 animate-fade-in">
           <h3 className="text-xs font-semibold text-text-primary uppercase tracking-wider mb-1">Top Failing Systems</h3>
-          <p className="text-[10px] text-text-muted mb-4">Ranked by critical + error events</p>
+          <p className="text-[10px] text-text-muted mb-4">{systemsSubtitle}</p>
           <ResponsiveContainer width="100%" height={260}>
             <BarChart data={failingSystems} layout="vertical" margin={{ top: 0, right: 10, left: 10, bottom: 0 }}>
               <defs>
@@ -98,7 +111,7 @@ export default function AnalyticsPage() {
         {/* Fault Type Distribution */}
         <div className="glass-panel panel-glow hover-lift rounded-xl p-5 animate-fade-in">
           <h3 className="text-xs font-semibold text-text-primary uppercase tracking-wider mb-1">Fault Type Distribution</h3>
-          <p className="text-[10px] text-text-muted mb-4">Event breakdown by fault category</p>
+          <p className="text-[10px] text-text-muted mb-4">{faultSubtitle}</p>
           <ResponsiveContainer width="100%" height={260}>
             <PieChart>
               <Pie data={faultTypes} dataKey="count" nameKey="fault_type" cx="50%" cy="50%" innerRadius={50} outerRadius={90} strokeWidth={2} stroke="#000000">

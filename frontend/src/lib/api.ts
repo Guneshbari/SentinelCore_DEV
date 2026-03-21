@@ -11,12 +11,34 @@ import type {
   MetricPoint,
   SeverityCount,
   FaultTypeCount,
+  SystemFailureCount,
 } from '../types/telemetry';
 
-const API_BASE = 'http://172.30.178.75:8080';
+const configuredApiBase = import.meta.env.VITE_SENTINEL_API_BASE_URL?.trim();
+const API_BASE = (configuredApiBase || 'http://172.30.178.75:8080').replace(/\/+$/, '');
+export const RECENT_EVENTS_LIMIT = Number.parseInt(
+  import.meta.env.VITE_SENTINEL_RECENT_EVENTS_LIMIT ?? '1000',
+  10,
+);
 
-async function fetchJSON<T>(endpoint: string): Promise<T> {
-  const res = await fetch(`${API_BASE}${endpoint}`);
+function buildEndpoint(
+  endpoint: string,
+  query?: Record<string, string | number | undefined>,
+): string {
+  const url = new URL(`${API_BASE}${endpoint}`);
+  Object.entries(query ?? {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      url.searchParams.set(key, String(value));
+    }
+  });
+  return url.toString();
+}
+
+async function fetchJSON<T>(
+  endpoint: string,
+  query?: Record<string, string | number | undefined>,
+): Promise<T> {
+  const res = await fetch(buildEndpoint(endpoint, query));
   if (!res.ok) {
     throw new Error(`API error ${res.status}: ${res.statusText}`);
   }
@@ -25,8 +47,8 @@ async function fetchJSON<T>(endpoint: string): Promise<T> {
 
 // ── Core data fetchers ──────────────────────────────────
 
-export async function fetchEvents(limit = 500): Promise<TelemetryEvent[]> {
-  return fetchJSON<TelemetryEvent[]>(`/events?limit=${limit}`);
+export async function fetchEvents(limit = RECENT_EVENTS_LIMIT): Promise<TelemetryEvent[]> {
+  return fetchJSON<TelemetryEvent[]>('/events', { limit });
 }
 
 export async function fetchSystems(): Promise<SystemInfo[]> {
@@ -49,16 +71,32 @@ export interface DashboardMetrics {
   warning_events: number;
 }
 
-export async function fetchDashboardMetrics(): Promise<DashboardMetrics> {
-  return fetchJSON<DashboardMetrics>('/dashboard-metrics');
+export async function fetchDashboardMetrics(windowMinutes?: number): Promise<DashboardMetrics> {
+  return fetchJSON<DashboardMetrics>('/dashboard-metrics', {
+    window_minutes: windowMinutes,
+  });
 }
 
-export async function fetchFaultDistribution(): Promise<FaultTypeCount[]> {
-  return fetchJSON<FaultTypeCount[]>('/fault-distribution');
+export async function fetchFaultDistribution(windowMinutes?: number): Promise<FaultTypeCount[]> {
+  return fetchJSON<FaultTypeCount[]>('/fault-distribution', {
+    window_minutes: windowMinutes,
+  });
 }
 
-export async function fetchSeverityDistribution(): Promise<SeverityCount[]> {
-  return fetchJSON<SeverityCount[]>('/severity-distribution');
+export async function fetchSeverityDistribution(windowMinutes?: number): Promise<SeverityCount[]> {
+  return fetchJSON<SeverityCount[]>('/severity-distribution', {
+    window_minutes: windowMinutes,
+  });
+}
+
+export async function fetchSystemFailures(
+  limit = 6,
+  windowMinutes?: number,
+): Promise<SystemFailureCount[]> {
+  return fetchJSON<SystemFailureCount[]>('/system-failures', {
+    limit,
+    window_minutes: windowMinutes,
+  });
 }
 
 export interface SystemMetrics {
@@ -92,7 +130,7 @@ export async function fetchPipelineHealth(): Promise<PipelineHealthData> {
 
 export async function checkAPIHealth(): Promise<boolean> {
   try {
-    const res = await fetch(`${API_BASE}/health`);
+    const res = await fetch(buildEndpoint('/health'));
     return res.ok;
   } catch {
     return false;

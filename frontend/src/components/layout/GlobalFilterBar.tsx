@@ -14,7 +14,8 @@ const SEVERITY_COLORS: Record<Severity, string> = {
 
 export default function GlobalFilterBar() {
   const {
-    allEvents,
+    systems,
+    faultDistribution,
     selectedSystems, setSelectedSystems,
     selectedSeverities, setSelectedSeverities,
     selectedFaultTypes, setSelectedFaultTypes,
@@ -22,9 +23,15 @@ export default function GlobalFilterBar() {
     clearFilters, hasActiveFilters,
   } = useDashboard();
 
-  // Derive filter options dynamically from live events data
-  const ALL_FAULT_TYPES = useMemo(() => [...new Set(allEvents.map((e) => e.fault_type))].sort(), [allEvents]);
-  const ALL_SYSTEMS = useMemo(() => [...new Set(allEvents.map((e) => e.hostname))].sort(), [allEvents]);
+  // Use authoritative inventory + aggregate distributions so quiet systems still appear.
+  const ALL_FAULT_TYPES = useMemo(
+    () => faultDistribution.map((entry) => entry.fault_type).sort(),
+    [faultDistribution],
+  );
+  const ALL_SYSTEMS = useMemo(
+    () => systems.map((system) => system.hostname).sort(),
+    [systems],
+  );
 
   const [showSystems, setShowSystems] = useState(false);
   const [showFaults, setShowFaults] = useState(false);

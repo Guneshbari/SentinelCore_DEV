@@ -16,10 +16,20 @@ import {
 import { useDashboard } from '../context/DashboardContext';
 
 export default function OverviewPage() {
-  const { filteredEvents, filteredSystems, filteredAlerts } = useDashboard();
+  const {
+    filteredEvents,
+    filteredSystems,
+    filteredAlerts,
+    dashboardMetrics,
+    canUseAggregateViews,
+  } = useDashboard();
   const degraded = getDegradedSystems(filteredSystems);
   const criticalAlerts = getCriticalAlertCount(filteredAlerts);
   const activeAlerts = getActiveAlerts(filteredAlerts).length;
+  const eventVolume = canUseAggregateViews ? dashboardMetrics.total_events : filteredEvents.length;
+  const eventVolumeSubtitle = canUseAggregateViews
+    ? 'server-backed range total'
+    : 'recent sample matching filters';
 
   // Recent critical/error events from filtered set
   const recentCritical = filteredEvents
@@ -63,9 +73,9 @@ export default function OverviewPage() {
             pulse={criticalAlerts > 0}
           />
           <DashboardCard
-            title="Filtered Events"
-            value={filteredEvents.length.toLocaleString()}
-            subtitle="matching filters"
+            title="Events In Range"
+            value={eventVolume.toLocaleString()}
+            subtitle={eventVolumeSubtitle}
             subtitleColor="text-text-secondary"
             icon={<Zap className="w-5 h-5 text-signal-primary" />}
             iconBg="bg-signal-primary/15"

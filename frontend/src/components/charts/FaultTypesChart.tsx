@@ -11,13 +11,16 @@ import { getTopFaultTypes } from '../../data/mockData';
 import { useDashboard } from '../../context/DashboardContext';
 
 export default function FaultTypesChart() {
-  const { allEvents } = useDashboard();
-  const data = getTopFaultTypes(allEvents);
+  const { allEvents, faultDistribution, canUseAggregateViews } = useDashboard();
+  const data = canUseAggregateViews ? faultDistribution.slice(0, 5) : getTopFaultTypes(allEvents);
+  const subtitle = canUseAggregateViews
+    ? 'Most common categories across the selected time range'
+    : 'Most common categories from the recent event sample';
 
   return (
     <div className="glass-panel panel-glow hover-lift rounded-xl p-5 animate-fade-in">
       <h3 className="text-xs font-semibold text-text-primary uppercase tracking-wider mb-1">Top Fault Types</h3>
-      <p className="text-[10px] text-text-muted mb-4">Most common fault categories</p>
+      <p className="text-[10px] text-text-muted mb-4">{subtitle}</p>
       <ResponsiveContainer width="100%" height={240}>
         <BarChart data={data} layout="vertical" margin={{ top: 0, right: 10, left: 0, bottom: 0 }}>
           <defs>

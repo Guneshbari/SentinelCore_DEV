@@ -1,6 +1,35 @@
-import { useState, useEffect, useCallback, createContext, useContext, useRef, type ReactNode } from 'react';
-import type { Severity, TelemetryEvent, SystemInfo, Alert, MetricPoint } from '../types/telemetry';
-import { fetchEvents, fetchSystems, fetchAlerts, fetchMetrics } from '../lib/api';
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+  createContext,
+  useContext,
+  useRef,
+  type ReactNode,
+} from 'react';
+import type {
+  Severity,
+  TelemetryEvent,
+  SystemInfo,
+  Alert,
+  MetricPoint,
+  SeverityCount,
+  FaultTypeCount,
+  SystemFailureCount,
+} from '../types/telemetry';
+import {
+  fetchAlerts,
+  fetchDashboardMetrics,
+  fetchEvents,
+  fetchFaultDistribution,
+  fetchMetrics,
+  fetchSeverityDistribution,
+  fetchSystemFailures,
+  fetchSystems,
+  RECENT_EVENTS_LIMIT,
+  type DashboardMetrics,
+} from '../lib/api';
 
 // ── Types ───────────────────────────────────────────────
 export type TimeRange = '5m' | '15m' | '1h' | '6h' | '24h';
@@ -12,6 +41,14 @@ const TIME_RANGE_MS: Record<TimeRange, number> = {
   '1h': 60 * 60_000,
   '6h': 6 * 60 * 60_000,
   '24h': 24 * 60 * 60_000,
+};
+
+const TIME_RANGE_WINDOW_MINUTES: Record<TimeRange, number> = {
+  '5m': 5,
+  '15m': 15,
+  '1h': 60,
+  '6h': 360,
+  '24h': 1440,
 };
 
 const REFRESH_MS: Record<AutoRefresh, number | null> = {
@@ -60,8 +97,14 @@ interface DashboardState {
   systems: SystemInfo[];
   alerts: Alert[];
   metrics: MetricPoint[];
+  dashboardMetrics: DashboardMetrics;
+  severityDistribution: SeverityCount[];
+  faultDistribution: FaultTypeCount[];
+  systemFailures: SystemFailureCount[];
   isLoading: boolean;
   apiError: string | null;
+  recentEventsLimit: number;
+  canUseAggregateViews: boolean;
 
   // Computed
   filteredEvents: TelemetryEvent[];
@@ -94,31 +137,78 @@ export function DashboardProvider({ children }: DashboardProviderProps) {
   const [systems, setSystems] = useState<SystemInfo[]>([]);
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [metrics, setMetrics] = useState<MetricPoint[]>([]);
+  const [dashboardMetrics, setDashboardMetrics] = useState<DashboardMetrics>({
+    total_events: 0,
+    critical_events: 0,
+    warning_events: 0,
+  });
+  const [severityDistribution, setSeverityDistribution] = useState<SeverityCount[]>([]);
+  const [faultDistribution, setFaultDistribution] = useState<FaultTypeCount[]>([]);
+  const [systemFailures, setSystemFailures] = useState<SystemFailureCount[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [apiError, setApiError] = useState<string | null>(null);
+  const aggregateWindowMinutes = TIME_RANGE_WINDOW_MINUTES[timeRange];
 
   // Fetch all data from the API
   const loadData = useCallback(async () => {
     try {
-      const [eventsData, systemsData, alertsData, metricsData] = await Promise.all([
-        fetchEvents(),
+      const [
+        eventsResult,
+        systemsResult,
+        alertsResult,
+        metricsResult,
+        dashboardMetricsResult,
+        severityDistributionResult,
+        faultDistributionResult,
+        systemFailuresResult,
+      ] = await Promise.allSettled([
+        fetchEvents(RECENT_EVENTS_LIMIT),
         fetchSystems(),
         fetchAlerts(),
         fetchMetrics(),
+        fetchDashboardMetrics(aggregateWindowMinutes),
+        fetchSeverityDistribution(aggregateWindowMinutes),
+        fetchFaultDistribution(aggregateWindowMinutes),
+        fetchSystemFailures(6, aggregateWindowMinutes),
       ]);
-      setAllEvents(eventsData);
-      setSystems(systemsData);
-      setAlerts(alertsData);
-      setMetrics(metricsData);
-      setApiError(null);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'API connection failed';
-      setApiError(msg);
-      console.warn('SentinelCore API error:', msg);
+
+      const failures: string[] = [];
+      const taskResults = [
+        { name: 'events', result: eventsResult },
+        { name: 'systems', result: systemsResult },
+        { name: 'alerts', result: alertsResult },
+        { name: 'metrics', result: metricsResult },
+        { name: 'dashboard-metrics', result: dashboardMetricsResult },
+        { name: 'severity-distribution', result: severityDistributionResult },
+        { name: 'fault-distribution', result: faultDistributionResult },
+        { name: 'system-failures', result: systemFailuresResult },
+      ];
+
+      taskResults.forEach(({ name, result }) => {
+        if (result.status === 'rejected') {
+          const reason = result.reason instanceof Error ? result.reason.message : 'Unknown error';
+          failures.push(`${name}: ${reason}`);
+        }
+      });
+
+      if (eventsResult.status === 'fulfilled') setAllEvents(eventsResult.value);
+      if (systemsResult.status === 'fulfilled') setSystems(systemsResult.value);
+      if (alertsResult.status === 'fulfilled') setAlerts(alertsResult.value);
+      if (metricsResult.status === 'fulfilled') setMetrics(metricsResult.value);
+      if (dashboardMetricsResult.status === 'fulfilled') setDashboardMetrics(dashboardMetricsResult.value);
+      if (severityDistributionResult.status === 'fulfilled') setSeverityDistribution(severityDistributionResult.value);
+      if (faultDistributionResult.status === 'fulfilled') setFaultDistribution(faultDistributionResult.value);
+      if (systemFailuresResult.status === 'fulfilled') setSystemFailures(systemFailuresResult.value);
+
+      const errorMessage = failures.length > 0 ? failures.join(' | ') : null;
+      setApiError(errorMessage);
+      if (errorMessage) {
+        console.warn('SentinelCore API error:', errorMessage);
+      }
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [aggregateWindowMinutes]);
 
   // Initial data load
   useEffect(() => {
@@ -152,24 +242,18 @@ export function DashboardProvider({ children }: DashboardProviderProps) {
     selectedSeverities.length > 0 ||
     selectedFaultTypes.length > 0 ||
     searchQuery.length > 0;
+  const canUseAggregateViews = !hasActiveFilters;
 
   // Filter events based on all global state — use real time
-  const filteredEvents = allEvents.filter((e) => {
-    // Time range filter — use real current time
+  const filteredEvents = useMemo(() => allEvents.filter((e) => {
     const now = Date.now();
     const eventTime = new Date(e.event_time).getTime();
     if (eventTime < now - TIME_RANGE_MS[timeRange]) return false;
 
-    // System filter
     if (selectedSystems.length > 0 && !selectedSystems.includes(e.hostname)) return false;
-
-    // Severity filter
     if (selectedSeverities.length > 0 && !selectedSeverities.includes(e.severity)) return false;
-
-    // Fault type filter
     if (selectedFaultTypes.length > 0 && !selectedFaultTypes.includes(e.fault_type)) return false;
 
-    // Search
     if (searchQuery) {
       const term = searchQuery.toLowerCase();
       const matches =
@@ -183,10 +267,17 @@ export function DashboardProvider({ children }: DashboardProviderProps) {
     }
 
     return true;
-  });
+  }), [
+    allEvents,
+    timeRange,
+    selectedSystems,
+    selectedSeverities,
+    selectedFaultTypes,
+    searchQuery,
+  ]);
 
   // Filter alerts based on global state
-  const filteredAlerts = alerts.filter((a) => {
+  const filteredAlerts = useMemo(() => alerts.filter((a) => {
     const now = Date.now();
     const alertTime = new Date(a.triggered_at).getTime();
     if (alertTime < now - TIME_RANGE_MS[timeRange]) return false;
@@ -199,10 +290,10 @@ export function DashboardProvider({ children }: DashboardProviderProps) {
           !a.hostname.toLowerCase().includes(term)) return false;
     }
     return true;
-  });
+  }), [alerts, timeRange, selectedSystems, selectedSeverities, searchQuery]);
 
   // Filter systems based on global state (no time filtering for status, just metadata filtering)
-  const filteredSystems = systems.filter((s) => {
+  const filteredSystems = useMemo(() => systems.filter((s) => {
     if (selectedSystems.length > 0 && !selectedSystems.includes(s.hostname)) return false;
     if (searchQuery) {
       const term = searchQuery.toLowerCase();
@@ -210,7 +301,7 @@ export function DashboardProvider({ children }: DashboardProviderProps) {
           !s.system_id.toLowerCase().includes(term)) return false;
     }
     return true;
-  });
+  }), [systems, selectedSystems, searchQuery]);
 
   return (
     <DashboardContext.Provider
@@ -231,8 +322,14 @@ export function DashboardProvider({ children }: DashboardProviderProps) {
         systems,
         alerts,
         metrics,
+        dashboardMetrics,
+        severityDistribution,
+        faultDistribution,
+        systemFailures,
         isLoading,
         apiError,
+        recentEventsLimit: RECENT_EVENTS_LIMIT,
+        canUseAggregateViews,
         filteredEvents,
         filteredAlerts,
         filteredSystems,

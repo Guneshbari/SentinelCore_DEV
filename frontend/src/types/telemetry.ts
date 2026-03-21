@@ -13,7 +13,14 @@ export interface TelemetryEvent {
   memory_usage_percent: number;
   disk_free_percent: number;
   event_time: string;
+  ingested_at?: string;
   event_hash?: string;
+  raw_xml?: string;
+  event_message?: string;
+  parsed_message?: string;
+  normalized_message?: string;
+  fault_subtype?: string;
+  confidence_score?: number;
   diagnostic_context?: Record<string, unknown>;
 }
 

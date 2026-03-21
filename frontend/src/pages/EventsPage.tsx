@@ -13,7 +13,7 @@ type SortDir = 'asc' | 'desc';
 const severityOrder: Record<Severity, number> = { CRITICAL: 0, ERROR: 1, WARNING: 2, INFO: 3 };
 
 export default function EventsPage() {
-  const { filteredEvents } = useDashboard();
+  const { filteredEvents, recentEventsLimit } = useDashboard();
   const [page, setPage] = useState(0);
   const [sortKey, setSortKey] = useState<SortKey>('event_time');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
@@ -56,10 +56,10 @@ export default function EventsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-bold text-text-primary">Event Explorer</h2>
-          <p className="text-xs text-text-muted mt-0.5">Investigate telemetry events</p>
+          <p className="text-xs text-text-muted mt-0.5">Investigate recent telemetry events</p>
         </div>
         <span className="text-xs text-text-muted glass-panel rounded-lg px-3 py-1.5">
-          {filteredEvents.length} events matching
+          {filteredEvents.length} of {recentEventsLimit} recent events loaded
         </span>
       </div>
 

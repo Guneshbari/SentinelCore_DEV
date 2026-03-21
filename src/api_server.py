@@ -597,19 +597,27 @@ def get_metrics() -> List[Dict]:
 
 
 @app.get("/dashboard-metrics")
-def get_dashboard_metrics() -> Dict:
+def get_dashboard_metrics(window_minutes: Optional[int] = None) -> Dict:
     """KPI summary. Falls back to feature_snapshots when events table is empty."""
     t0      = time.time()
     default = {"total_events": 0, "critical_events": 0, "warning_events": 0}
     try:
         def load_dashboard_metrics() -> Dict:
+            where_clause = ""
+            params: List = []
+            if window_minutes and window_minutes > 0:
+                where_clause = (
+                    "WHERE ingested_at >= NOW() - (%s * INTERVAL '1 minute')"
+                )
+                params.append(window_minutes)
             row = _exec_one("""
                 SELECT
                     COUNT(*)                                       AS total_events,
                     COUNT(*) FILTER (WHERE severity = 'CRITICAL') AS critical_events,
                     COUNT(*) FILTER (WHERE severity = 'WARNING')  AS warning_events
                 FROM events
-            """, endpoint="/dashboard-metrics")
+                {where_clause}
+            """.format(where_clause=where_clause), tuple(params), endpoint="/dashboard-metrics")
 
             if not row or _i(row.get("total_events")) == 0:
                 snap = _exec_one("""
@@ -629,7 +637,7 @@ def get_dashboard_metrics() -> Dict:
             }
 
         result = _response_cache.get_or_set(
-            _cache_key("/dashboard-metrics"),
+            _cache_key("/dashboard-metrics", window_minutes),
             API_CACHE_TTL_SECONDS,
             load_dashboard_metrics,
         )
@@ -644,12 +652,23 @@ def get_dashboard_metrics() -> Dict:
 
 
 @app.get("/fault-distribution")
-def get_fault_distribution() -> List[Dict]:
+def get_fault_distribution(window_minutes: Optional[int] = None) -> List[Dict]:
     t0 = time.time()
     try:
+        where_clause = ""
+        params: List = []
+        if window_minutes and window_minutes > 0:
+            where_clause = (
+                "WHERE ingested_at >= NOW() - (%s * INTERVAL '1 minute') "
+            )
+            params.append(window_minutes)
         rows = _exec_query(
-            "SELECT fault_type, COUNT(*) AS count FROM events "
-            "GROUP BY fault_type ORDER BY count DESC",
+            (
+                "SELECT fault_type, COUNT(*) AS count FROM events "
+                f"{where_clause}"
+                "GROUP BY fault_type ORDER BY count DESC"
+            ),
+            tuple(params),
             endpoint="/fault-distribution",
         )
         _log_req("/fault-distribution", (time.time() - t0) * 1000, "ok", len(rows))
@@ -661,11 +680,23 @@ def get_fault_distribution() -> List[Dict]:
 
 
 @app.get("/severity-distribution")
-def get_severity_distribution() -> List[Dict]:
+def get_severity_distribution(window_minutes: Optional[int] = None) -> List[Dict]:
     t0 = time.time()
     try:
+        where_clause = ""
+        params: List = []
+        if window_minutes and window_minutes > 0:
+            where_clause = (
+                "WHERE ingested_at >= NOW() - (%s * INTERVAL '1 minute') "
+            )
+            params.append(window_minutes)
         rows = _exec_query(
-            "SELECT severity, COUNT(*) AS count FROM events GROUP BY severity",
+            (
+                "SELECT severity, COUNT(*) AS count FROM events "
+                f"{where_clause}"
+                "GROUP BY severity"
+            ),
+            tuple(params),
             endpoint="/severity-distribution",
         )
         _log_req("/severity-distribution", (time.time() - t0) * 1000, "ok", len(rows))
@@ -673,6 +704,47 @@ def get_severity_distribution() -> List[Dict]:
     except Exception as exc:
         logger.error("/severity-distribution error: %s", exc)
         _log_failure("/severity-distribution", "endpoint", exc)
+        return []
+
+
+@app.get("/system-failures")
+def get_system_failures(
+    limit: int = 6,
+    window_minutes: Optional[int] = None,
+) -> List[Dict]:
+    t0 = time.time()
+    try:
+        limit = max(1, min(limit, 25))
+        where_parts = ["e.severity IN ('CRITICAL', 'ERROR')"]
+        params: List = []
+        if window_minutes and window_minutes > 0:
+            where_parts.append(
+                "e.ingested_at >= NOW() - (%s * INTERVAL '1 minute')"
+            )
+            params.append(window_minutes)
+
+        params.append(limit)
+        rows = _exec_query(
+            """
+                SELECT
+                    e.system_id,
+                    COALESCE(h.hostname, e.system_id) AS hostname,
+                    COUNT(*) AS failure_count
+                FROM events e
+                LEFT JOIN system_heartbeats h ON h.system_id = e.system_id
+                WHERE {where_clause}
+                GROUP BY e.system_id, hostname
+                ORDER BY failure_count DESC, e.system_id
+                LIMIT %s
+            """.format(where_clause=" AND ".join(where_parts)),
+            tuple(params),
+            endpoint="/system-failures",
+        )
+        _log_req("/system-failures", (time.time() - t0) * 1000, "ok", len(rows))
+        return rows
+    except Exception as exc:
+        logger.error("/system-failures error: %s", exc)
+        _log_failure("/system-failures", "endpoint", exc)
         return []
 
 

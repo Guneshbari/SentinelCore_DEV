@@ -18,13 +18,16 @@ const COLORS: Record<Severity, string> = {
 };
 
 export default function SeverityChart() {
-  const { allEvents } = useDashboard();
-  const data = getSeverityDistribution(allEvents);
+  const { allEvents, severityDistribution, canUseAggregateViews } = useDashboard();
+  const data = canUseAggregateViews ? severityDistribution : getSeverityDistribution(allEvents);
+  const subtitle = canUseAggregateViews
+    ? 'Server-backed breakdown for the selected time range'
+    : 'Breakdown from the recent event sample';
 
   return (
     <div className="glass-panel panel-glow hover-lift rounded-xl p-5 animate-fade-in">
       <h3 className="text-xs font-semibold text-text-primary uppercase tracking-wider mb-1">Severity Distribution</h3>
-      <p className="text-[10px] text-text-muted mb-4">Breakdown of events by severity level</p>
+      <p className="text-[10px] text-text-muted mb-4">{subtitle}</p>
       <ResponsiveContainer width="100%" height={240}>
         <PieChart>
           <Pie
