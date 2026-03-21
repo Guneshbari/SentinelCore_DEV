@@ -13,13 +13,14 @@ Hardening:
 
 import json
 import logging
+import secrets
 import threading
 import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 import psycopg2
@@ -28,8 +29,11 @@ import psycopg2.extras
 
 from shared_constants import (
     DB_CONFIG,
+    API_BEARER_TOKEN,
     API_RESPONSE_TIMEOUT_SECONDS,
     API_CACHE_TTL_SECONDS,
+    API_CORS_ALLOWED_ORIGINS,
+    API_MAX_EVENTS_LIMIT,
     DB_QUERY_TIMEOUT_SECONDS,
     DB_POOL_MIN_CONN,
     DB_POOL_MAX_CONN,
@@ -93,8 +97,8 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=API_CORS_ALLOWED_ORIGINS,
+    allow_credentials=API_CORS_ALLOWED_ORIGINS != ["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -112,20 +116,46 @@ class TimedResponseCache:
 
     def __init__(self) -> None:
         self._entries: Dict[str, Tuple[float, Any]] = {}
+        self._inflight: Dict[str, threading.Event] = {}
         self._lock = threading.Lock()
 
     def get_or_set(self, key: str, ttl_seconds: int, loader: Callable[[], Any]) -> Any:
-        """Return a cached value when fresh, otherwise compute and store it."""
-        now = time.time()
-        with self._lock:
-            cached_entry = self._entries.get(key)
-            if cached_entry and cached_entry[0] > now:
-                return cached_entry[1]
+        """
+        Return a cached value when fresh, otherwise compute it once per key.
 
-        value = loader()
-        with self._lock:
-            self._entries[key] = (now + ttl_seconds, value)
-        return value
+        This prevents cache stampedes on hot endpoints when an entry expires
+        under concurrent load.
+        """
+        while True:
+            should_load = False
+            with self._lock:
+                now = time.time()
+                cached_entry = self._entries.get(key)
+                if cached_entry and cached_entry[0] > now:
+                    return cached_entry[1]
+
+                inflight_event = self._inflight.get(key)
+                if inflight_event is None:
+                    inflight_event = threading.Event()
+                    self._inflight[key] = inflight_event
+                    should_load = True
+
+            if should_load:
+                try:
+                    value = loader()
+                except Exception:
+                    with self._lock:
+                        self._inflight.pop(key, None)
+                        inflight_event.set()
+                    raise
+
+                with self._lock:
+                    self._entries[key] = (time.time() + ttl_seconds, value)
+                    self._inflight.pop(key, None)
+                    inflight_event.set()
+                return value
+
+            inflight_event.wait()
 
 
 _response_cache = TimedResponseCache()
@@ -158,6 +188,12 @@ def _get_db() -> Iterator[Any]:
     conn = pool.getconn()
     try:
         yield conn
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        raise
     finally:
         if conn:
             pool.putconn(conn)
@@ -169,6 +205,23 @@ def _on_shutdown() -> None:
     if _pool:
         _pool.closeall()
         _pool = None
+
+
+@app.middleware("http")
+async def _security_middleware(request: Request, call_next: Callable[..., Any]) -> Any:
+    """Apply optional auth checks and baseline response headers."""
+    if API_BEARER_TOKEN:
+        provided_token = request.headers.get("Authorization", "")
+        expected_token = f"Bearer {API_BEARER_TOKEN}"
+        if not secrets.compare_digest(provided_token, expected_token):
+            _log_failure(request.url.path, "auth", "invalid_or_missing_bearer_token")
+            return PlainTextResponse("Unauthorized", status_code=401)
+
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "same-origin")
+    return response
 
 
 # ============================================================================
@@ -281,6 +334,30 @@ def _cache_key(endpoint: str, **params: Any) -> str:
     return "|".join(parts)
 
 
+def _bounded_limit(limit: int) -> int:
+    """Clamp externally supplied limits to a safe, env-tunable range."""
+    try:
+        requested_limit = int(limit)
+    except (TypeError, ValueError):
+        requested_limit = 100
+    return max(1, min(requested_limit, API_MAX_EVENTS_LIMIT))
+
+
+def _log_security_posture() -> None:
+    """Emit warnings when running with permissive API defaults."""
+    if API_CORS_ALLOWED_ORIGINS == ["*"]:
+        _log_failure("/startup", "security_posture", "wildcard_cors_origins_enabled")
+
+    if DB_CONFIG.get("password") == "changeme123":
+        _log_failure("/startup", "security_posture", "default_database_password_in_use")
+
+    if not API_BEARER_TOKEN:
+        _log_failure("/startup", "security_posture", "api_bearer_token_not_configured")
+
+
+_log_security_posture()
+
+
 # ============================================================================
 # ENDPOINTS
 # ============================================================================
@@ -289,6 +366,7 @@ def _cache_key(endpoint: str, **params: Any) -> str:
 def get_events(limit: int = 100) -> List[Dict]:
     t0 = time.time()
     try:
+        limit = _bounded_limit(limit)
         rows = _exec_query("""
             SELECT id, system_id, fault_type, severity, provider_name, event_id,
                    cpu_usage_percent, memory_usage_percent, disk_free_percent,

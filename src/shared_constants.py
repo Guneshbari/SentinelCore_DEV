@@ -29,6 +29,12 @@ def env_bool(name: str, default: bool = False) -> bool:
     return raw_value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def env_csv(name: str, default: str) -> list[str]:
+    """Read a comma-separated environment variable into a list."""
+    raw_value = os.getenv(name, default)
+    return [item.strip() for item in raw_value.split(",") if item.strip()]
+
+
 # ============================================================================
 # SEVERITY LEVEL NAMES
 # ============================================================================
@@ -89,6 +95,7 @@ KAFKA_CONSUMER_CLIENT_ID = os.getenv("SENTINEL_KAFKA_CONSUMER_CLIENT_ID", "senti
 KAFKA_POLL_TIMEOUT_MS = env_int("SENTINEL_KAFKA_POLL_TIMEOUT_MS", 5000)
 KAFKA_MAX_POLL_RECORDS = env_int("SENTINEL_KAFKA_MAX_POLL_RECORDS", 50)
 KAFKA_MIN_TOPIC_PARTITIONS = env_int("SENTINEL_KAFKA_MIN_TOPIC_PARTITIONS", 3)
+KAFKA_TOPIC_REPLICATION_FACTOR = env_int("SENTINEL_KAFKA_TOPIC_REPLICATION_FACTOR", 1)
 KAFKA_LAG_LOG_INTERVAL_SECS = env_int("SENTINEL_KAFKA_LAG_LOG_INTERVAL_SECS", 30)
 KAFKA_LAG_WARNING_THRESHOLD = env_int("SENTINEL_KAFKA_LAG_WARNING_THRESHOLD", 250)
 
@@ -111,6 +118,9 @@ FEATURE_BUILDER_SYSTEM_BATCH_SIZE = env_int("SENTINEL_FEATURE_BUILDER_SYSTEM_BAT
 # ============================================================================
 
 API_CACHE_TTL_SECONDS = env_int("SENTINEL_API_CACHE_TTL_SECONDS", 5)
+API_MAX_EVENTS_LIMIT = env_int("SENTINEL_API_MAX_EVENTS_LIMIT", 1000)
+API_CORS_ALLOWED_ORIGINS = env_csv("SENTINEL_API_CORS_ALLOWED_ORIGINS", "*")
+API_BEARER_TOKEN = os.getenv("SENTINEL_API_BEARER_TOKEN", "")
 
 # ============================================================================
 # COLLECTOR CONFIGURATION

@@ -251,27 +251,119 @@ def write_snapshot(conn: Any, system_id: str, heartbeat: Dict[str, Any], stats: 
         return False
 
 
+def _build_snapshot_row(
+    system_id: str,
+    heartbeat: Dict[str, Any],
+    stats: Dict[str, Any],
+    snapshot_time: Optional[datetime] = None,
+) -> Tuple[Any, ...]:
+    """Build one feature_snapshots row tuple."""
+    snapshot_time = snapshot_time or datetime.now(timezone.utc)
+    return (
+        system_id,
+        snapshot_time,
+        _safe_float(heartbeat.get("cpu_usage_percent"), 0.0),
+        _safe_float(heartbeat.get("memory_usage_percent"), 0.0),
+        _safe_float(heartbeat.get("disk_free_percent"), 100.0),
+        _safe_int(stats.get("total_events")),
+        _safe_int(stats.get("critical_count")),
+        _safe_int(stats.get("error_count")),
+        _safe_int(stats.get("warning_count")),
+        _safe_int(stats.get("info_count")),
+        stats.get("dominant_fault_type") or "NONE",
+        _safe_float(stats.get("avg_confidence"), 0.20),
+    )
+
+
+def _insert_snapshot_rows(conn: Any, rows: Sequence[Tuple[Any, ...]]) -> None:
+    """Insert multiple snapshot rows in one round-trip."""
+    if not rows:
+        return
+
+    with conn.cursor() as cur:
+        psycopg2.extras.execute_values(
+            cur,
+            """
+            INSERT INTO feature_snapshots (
+                system_id, snapshot_time,
+                cpu_usage_percent, memory_usage_percent, disk_free_percent,
+                total_events, critical_count, error_count, warning_count, info_count,
+                dominant_fault_type, avg_confidence
+            ) VALUES %s
+            """,
+            rows,
+            page_size=max(1, len(rows)),
+        )
+    conn.commit()
+
+
 def _chunked(items: Sequence[Tuple[str, Dict[str, Any], Dict[str, Any]]], chunk_size: int) -> Iterable[Sequence[Tuple[str, Dict[str, Any], Dict[str, Any]]]]:
     """Yield fixed-size chunks from a sequence."""
     for start_index in range(0, len(items), chunk_size):
         yield items[start_index : start_index + chunk_size]
 
 
-def _write_snapshot_batch(snapshot_batch: Sequence[Tuple[str, Dict[str, Any], Dict[str, Any]]]) -> Tuple[int, List[str]]:
+def _write_snapshot_batch(
+    snapshot_batch: Sequence[Tuple[str, Dict[str, Any], Dict[str, Any]]],
+    deadline_monotonic: float,
+) -> Tuple[int, List[str], bool]:
     """Write a batch of snapshots using a dedicated worker connection."""
     if not snapshot_batch:
-        return 0, []
+        return 0, [], False
 
     worker_conn = _get_healthy_conn(None)
     successes = 0
     failures: List[str] = []
+    timed_out = False
     try:
-        for system_id, heartbeat, stats in snapshot_batch:
-            if write_snapshot(worker_conn, system_id, heartbeat, stats):
-                successes += 1
-            else:
-                failures.append(system_id)
-        return successes, failures
+        ready_jobs: List[Tuple[str, Dict[str, Any], Dict[str, Any]]] = []
+        snapshot_rows: List[Tuple[Any, ...]] = []
+        batch_snapshot_time = datetime.now(timezone.utc)
+
+        for index, (system_id, heartbeat, stats) in enumerate(snapshot_batch):
+            if time.monotonic() >= deadline_monotonic:
+                timed_out = True
+                failures.extend(
+                    pending_system_id
+                    for pending_system_id, _pending_heartbeat, _pending_stats in snapshot_batch[index:]
+                )
+                break
+
+            ready_jobs.append((system_id, heartbeat, stats))
+            snapshot_rows.append(_build_snapshot_row(system_id, heartbeat, stats, batch_snapshot_time))
+
+        if snapshot_rows:
+            try:
+                _insert_snapshot_rows(worker_conn, snapshot_rows)
+                successes += len(snapshot_rows)
+            except Exception as batch_exc:
+                logger.warning("Batch snapshot insert failed - falling back to per-system writes: %s", batch_exc)
+                structured_log(
+                    "feature_builder",
+                    {
+                        "operation": "write_snapshot_batch",
+                        "status": "warning",
+                        "error": str(batch_exc),
+                        "mode": "batch_fallback_to_individual",
+                    },
+                    log=logger,
+                )
+                try:
+                    worker_conn.rollback()
+                except Exception:
+                    pass
+
+                for index, (system_id, heartbeat, stats) in enumerate(ready_jobs):
+                    if time.monotonic() >= deadline_monotonic:
+                        timed_out = True
+                        failures.extend(pending_system_id for pending_system_id, _pending_heartbeat, _pending_stats in ready_jobs[index:])
+                        break
+                    if write_snapshot(worker_conn, system_id, heartbeat, stats):
+                        successes += 1
+                    else:
+                        failures.append(system_id)
+
+        return successes, failures, timed_out
     finally:
         try:
             worker_conn.close()
@@ -302,14 +394,21 @@ def run_cycle(conn: Any, cycle: int) -> Tuple[Any, int, int]:
 
     snapshots_written = 0
     worker_count = max(1, min(FEATURE_BUILDER_THREAD_WORKERS, len(snapshot_jobs)))
-    with ThreadPoolExecutor(max_workers=worker_count, thread_name_prefix="feature-builder") as executor:
+    executor = ThreadPoolExecutor(max_workers=worker_count, thread_name_prefix="feature-builder")
+    try:
         futures = [
-            executor.submit(_write_snapshot_batch, batch)
+            executor.submit(
+                _write_snapshot_batch,
+                batch,
+                time.monotonic() + FEATURE_BUILDER_BATCH_TIMEOUT_SECS,
+            )
             for batch in _chunked(snapshot_jobs, max(1, FEATURE_BUILDER_SYSTEM_BATCH_SIZE))
         ]
         for future in futures:
             try:
-                batch_successes, batch_failures = future.result(timeout=FEATURE_BUILDER_BATCH_TIMEOUT_SECS)
+                batch_successes, batch_failures, batch_timed_out = future.result(
+                    timeout=FEATURE_BUILDER_BATCH_TIMEOUT_SECS + 1
+                )
                 snapshots_written += batch_successes
                 for failed_system_id in batch_failures:
                     structured_log(
@@ -321,18 +420,31 @@ def run_cycle(conn: Any, cycle: int) -> Tuple[Any, int, int]:
                         },
                         log=logger,
                     )
+                if batch_timed_out:
+                    logger.error("[Cycle %d] Snapshot batch exceeded %ss", cycle, FEATURE_BUILDER_BATCH_TIMEOUT_SECS)
+                    structured_log(
+                        "feature_builder",
+                        {
+                            "operation": "write_snapshot_batch",
+                            "cycle": cycle,
+                            "status": "failed",
+                            "error": f"batch timed out after {FEATURE_BUILDER_BATCH_TIMEOUT_SECS}s",
+                        },
+                        log=logger,
+                    )
             except FutureTimeoutError:
-                logger.error("[Cycle %d] Snapshot batch exceeded %ss", cycle, FEATURE_BUILDER_BATCH_TIMEOUT_SECS)
+                logger.error("[Cycle %d] Snapshot batch future exceeded %ss", cycle, FEATURE_BUILDER_BATCH_TIMEOUT_SECS)
                 structured_log(
                     "feature_builder",
                     {
                         "operation": "write_snapshot_batch",
                         "cycle": cycle,
                         "status": "failed",
-                        "error": f"batch timed out after {FEATURE_BUILDER_BATCH_TIMEOUT_SECS}s",
+                        "error": f"future exceeded {FEATURE_BUILDER_BATCH_TIMEOUT_SECS}s",
                     },
                     log=logger,
                 )
+                future.cancel()
             except Exception as exc:
                 logger.error("[Cycle %d] Snapshot batch error: %s", cycle, exc, exc_info=True)
                 structured_log(
@@ -345,6 +457,8 @@ def run_cycle(conn: Any, cycle: int) -> Tuple[Any, int, int]:
                     },
                     log=logger,
                 )
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
 
     return conn, systems_checked, snapshots_written
 

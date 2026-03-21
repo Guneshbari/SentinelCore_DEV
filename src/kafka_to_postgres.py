@@ -21,6 +21,14 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from kafka import KafkaConsumer  # type: ignore
 from kafka.errors import KafkaError  # type: ignore
+try:
+    from kafka.structs import OffsetAndMetadata  # type: ignore
+except Exception:  # pragma: no cover - test stubs may not expose kafka.structs
+    class OffsetAndMetadata(tuple):  # type: ignore
+        """Fallback tuple-compatible OffsetAndMetadata for test environments."""
+
+        def __new__(cls, offset: int, metadata: Any) -> "OffsetAndMetadata":
+            return tuple.__new__(cls, (offset, metadata))
 from psycopg2.extras import Json, execute_values
 
 from shared_constants import (
@@ -42,6 +50,7 @@ from shared_constants import (
     KAFKA_MIN_TOPIC_PARTITIONS,
     KAFKA_POLL_TIMEOUT_MS,
     KAFKA_TOPIC,
+    KAFKA_TOPIC_REPLICATION_FACTOR,
     RAW_XML_MAX_BYTES,
     RETENTION_CLEANUP_ENABLED,
     RETENTION_CLEANUP_INTERVAL_SECS,
@@ -600,7 +609,7 @@ def ensure_kafka_topic_partitioning() -> None:
                         NewTopic(
                             name=KAFKA_TOPIC,
                             num_partitions=KAFKA_MIN_TOPIC_PARTITIONS,
-                            replication_factor=1,
+                            replication_factor=KAFKA_TOPIC_REPLICATION_FACTOR,
                         )
                     ]
                 )
@@ -610,6 +619,7 @@ def ensure_kafka_topic_partitioning() -> None:
                         "operation": "ensure_topic_partitioning",
                         "topic": KAFKA_TOPIC,
                         "partitions": KAFKA_MIN_TOPIC_PARTITIONS,
+                        "replication_factor": KAFKA_TOPIC_REPLICATION_FACTOR,
                         "status": "created",
                     },
                     log=logger,
@@ -640,12 +650,26 @@ def ensure_kafka_topic_partitioning() -> None:
                         "operation": "ensure_topic_partitioning",
                         "topic": KAFKA_TOPIC,
                         "partitions": existing_partitions,
+                        "replication_factor": KAFKA_TOPIC_REPLICATION_FACTOR,
                         "status": "ok",
                     },
                     log=logger,
                 )
         finally:
             admin.close()
+
+        if KAFKA_TOPIC_REPLICATION_FACTOR <= 1:
+            structured_log(
+                "kafka_to_postgres",
+                {
+                    "operation": "ensure_topic_partitioning",
+                    "topic": KAFKA_TOPIC,
+                    "status": "warning",
+                    "error": "single_replica_topic_configuration",
+                    "replication_factor": KAFKA_TOPIC_REPLICATION_FACTOR,
+                },
+                log=logger,
+            )
     except Exception as exc:
         _kafka_cb.record_failure()
         structured_log(
@@ -658,6 +682,38 @@ def ensure_kafka_topic_partitioning() -> None:
             },
             log=logger,
         )
+
+
+def commit_partition_offset(consumer: KafkaConsumer, topic_partition: Any, next_offset: int) -> bool:
+    """Commit the next safe offset for one partition after DB persistence succeeds."""
+    try:
+        consumer.commit(offsets={topic_partition: OffsetAndMetadata(next_offset, None)})
+        structured_log(
+            "kafka_to_postgres",
+            {
+                "operation": "commit_offset",
+                "status": "ok",
+                "topic": getattr(topic_partition, "topic", KAFKA_TOPIC),
+                "partition": getattr(topic_partition, "partition", "unknown"),
+                "next_offset": next_offset,
+            },
+            log=logger,
+        )
+        return True
+    except Exception as exc:
+        structured_log(
+            "kafka_to_postgres",
+            {
+                "operation": "commit_offset",
+                "status": "failed",
+                "topic": getattr(topic_partition, "topic", KAFKA_TOPIC),
+                "partition": getattr(topic_partition, "partition", "unknown"),
+                "next_offset": next_offset,
+                "error": str(exc),
+            },
+            log=logger,
+        )
+        return False
 
 
 def log_kafka_lag(consumer: KafkaConsumer) -> None:
@@ -735,7 +791,7 @@ def run_consumer() -> None:
         group_id=KAFKA_GROUP_ID,
         client_id=KAFKA_CONSUMER_CLIENT_ID,
         auto_offset_reset="latest",
-        enable_auto_commit=True,
+        enable_auto_commit=False,
         consumer_timeout_ms=KAFKA_POLL_TIMEOUT_MS,
         max_poll_records=KAFKA_MAX_POLL_RECORDS,
         value_deserializer=lambda raw_message: json.loads(raw_message.decode("utf-8")),
@@ -812,7 +868,9 @@ def run_consumer() -> None:
             batch_events = 0
             batch_failures = 0
 
-            for _topic_partition, messages in records.items():
+            for topic_partition, messages in records.items():
+                last_committable_offset: Optional[int] = None
+                partition_had_failure = False
                 for message in messages:
                     if shutdown_requested:
                         break
@@ -827,6 +885,7 @@ def run_consumer() -> None:
                     except Exception as exc:
                         failed_messages += 1
                         batch_failures += 1
+                        partition_had_failure = True
                         structured_log(
                             "kafka_to_postgres",
                             {
@@ -839,7 +898,7 @@ def run_consumer() -> None:
                             log=logger,
                         )
                         time.sleep(CONSUMER_DB_BACKOFF_SECS)
-                        continue
+                        break
 
                     ok = process_message(conn, payload)
                     latency_ms = round((time.time() - message_started_at) * 1000, 2)
@@ -849,9 +908,11 @@ def run_consumer() -> None:
                     if ok:
                         processed_messages += 1
                         processed_events += event_count
+                        last_committable_offset = message.offset + 1
                     else:
                         failed_messages += 1
                         batch_failures += 1
+                        partition_had_failure = True
 
                     if latency_ms >= CONSUMER_DB_SLOW_MS:
                         logger.warning(
@@ -873,6 +934,25 @@ def run_consumer() -> None:
                             log=logger,
                         )
                         time.sleep(CONSUMER_DB_BACKOFF_SECS)
+
+                    if partition_had_failure:
+                        break
+
+                if last_committable_offset is not None:
+                    commit_partition_offset(consumer, topic_partition, last_committable_offset)
+
+                if partition_had_failure:
+                    structured_log(
+                        "kafka_to_postgres",
+                        {
+                            "operation": "partition_backoff",
+                            "status": "warning",
+                            "topic": getattr(topic_partition, "topic", KAFKA_TOPIC),
+                            "partition": getattr(topic_partition, "partition", "unknown"),
+                            "backoff_secs": CONSUMER_DB_BACKOFF_SECS,
+                        },
+                        log=logger,
+                    )
 
             batch_duration = max(time.time() - batch_started_at, 0.001)
             batch_events_per_sec = round(batch_events / batch_duration, 2)
