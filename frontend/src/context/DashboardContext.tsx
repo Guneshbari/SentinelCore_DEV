@@ -24,11 +24,13 @@ import {
   fetchEvents,
   fetchFaultDistribution,
   fetchMetrics,
+  fetchPipelineHealth,
   fetchSeverityDistribution,
   fetchSystemFailures,
   fetchSystems,
   RECENT_EVENTS_LIMIT,
   type DashboardMetrics,
+  type PipelineHealthData,
 } from '../lib/api';
 
 // ── Types ───────────────────────────────────────────────
@@ -75,6 +77,25 @@ export const REFRESH_LABELS: Record<AutoRefresh, string> = {
   '1m': '1m',
 };
 
+type SystemHealthLevel = 'healthy' | 'warning' | 'error' | 'critical';
+
+interface SystemEventSummary {
+  eventCount: number;
+  criticalCount: number;
+  errorCount: number;
+  warningCount: number;
+  healthScore: number;
+  healthLevel: SystemHealthLevel;
+  latestEvent: TelemetryEvent | null;
+}
+
+function scoreToHealthLevel(score: number): SystemHealthLevel {
+  if (score >= 10) return 'critical';
+  if (score >= 5) return 'error';
+  if (score >= 2) return 'warning';
+  return 'healthy';
+}
+
 interface DashboardState {
   // Time range
   timeRange: TimeRange;
@@ -101,6 +122,8 @@ interface DashboardState {
   severityDistribution: SeverityCount[];
   faultDistribution: FaultTypeCount[];
   systemFailures: SystemFailureCount[];
+  pipelineHealth: PipelineHealthData | null;
+  pipelineHealthError: string | null;
   isLoading: boolean;
   apiError: string | null;
   recentEventsLimit: number;
@@ -108,6 +131,9 @@ interface DashboardState {
 
   // Computed
   filteredEvents: TelemetryEvent[];
+  filteredEventsBySystemId: Record<string, TelemetryEvent[]>;
+  filteredSystemEventSummaries: Record<string, SystemEventSummary>;
+  topSystemsByEventVolume: { name: string; events: number }[];
   filteredAlerts: Alert[];
   filteredSystems: SystemInfo[];
   refreshTick: number;
@@ -131,6 +157,8 @@ export function DashboardProvider({ children }: DashboardProviderProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [refreshTick, setRefreshTick] = useState(0);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const loadInFlightRef = useRef(false);
+  const isPageVisibleRef = useRef(true);
 
   // Live data state
   const [allEvents, setAllEvents] = useState<TelemetryEvent[]>([]);
@@ -145,12 +173,19 @@ export function DashboardProvider({ children }: DashboardProviderProps) {
   const [severityDistribution, setSeverityDistribution] = useState<SeverityCount[]>([]);
   const [faultDistribution, setFaultDistribution] = useState<FaultTypeCount[]>([]);
   const [systemFailures, setSystemFailures] = useState<SystemFailureCount[]>([]);
+  const [pipelineHealth, setPipelineHealth] = useState<PipelineHealthData | null>(null);
+  const [pipelineHealthError, setPipelineHealthError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [apiError, setApiError] = useState<string | null>(null);
   const aggregateWindowMinutes = TIME_RANGE_WINDOW_MINUTES[timeRange];
 
   // Fetch all data from the API
   const loadData = useCallback(async () => {
+    if (loadInFlightRef.current) {
+      return;
+    }
+
+    loadInFlightRef.current = true;
     try {
       const [
         eventsResult,
@@ -161,6 +196,7 @@ export function DashboardProvider({ children }: DashboardProviderProps) {
         severityDistributionResult,
         faultDistributionResult,
         systemFailuresResult,
+        pipelineHealthResult,
       ] = await Promise.allSettled([
         fetchEvents(RECENT_EVENTS_LIMIT),
         fetchSystems(),
@@ -170,6 +206,7 @@ export function DashboardProvider({ children }: DashboardProviderProps) {
         fetchSeverityDistribution(aggregateWindowMinutes),
         fetchFaultDistribution(aggregateWindowMinutes),
         fetchSystemFailures(6, aggregateWindowMinutes),
+        fetchPipelineHealth(),
       ]);
 
       const failures: string[] = [];
@@ -182,6 +219,7 @@ export function DashboardProvider({ children }: DashboardProviderProps) {
         { name: 'severity-distribution', result: severityDistributionResult },
         { name: 'fault-distribution', result: faultDistributionResult },
         { name: 'system-failures', result: systemFailuresResult },
+        { name: 'pipeline-health', result: pipelineHealthResult },
       ];
 
       taskResults.forEach(({ name, result }) => {
@@ -199,6 +237,15 @@ export function DashboardProvider({ children }: DashboardProviderProps) {
       if (severityDistributionResult.status === 'fulfilled') setSeverityDistribution(severityDistributionResult.value);
       if (faultDistributionResult.status === 'fulfilled') setFaultDistribution(faultDistributionResult.value);
       if (systemFailuresResult.status === 'fulfilled') setSystemFailures(systemFailuresResult.value);
+      if (pipelineHealthResult.status === 'fulfilled') {
+        setPipelineHealth(pipelineHealthResult.value);
+        setPipelineHealthError(null);
+      } else {
+        const reason = pipelineHealthResult.reason instanceof Error
+          ? pipelineHealthResult.reason.message
+          : 'Pipeline API unavailable';
+        setPipelineHealthError(reason);
+      }
 
       const errorMessage = failures.length > 0 ? failures.join(' | ') : null;
       setApiError(errorMessage);
@@ -206,13 +253,32 @@ export function DashboardProvider({ children }: DashboardProviderProps) {
         console.warn('SentinelCore API error:', errorMessage);
       }
     } finally {
+      loadInFlightRef.current = false;
       setIsLoading(false);
     }
   }, [aggregateWindowMinutes]);
 
   // Initial data load
   useEffect(() => {
-    loadData();
+    void loadData();
+  }, [loadData]);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') {
+      return undefined;
+    }
+
+    isPageVisibleRef.current = !document.hidden;
+    const handleVisibilityChange = () => {
+      isPageVisibleRef.current = !document.hidden;
+      if (isPageVisibleRef.current) {
+        setRefreshTick((tick) => tick + 1);
+        void loadData();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [loadData]);
 
   // Auto-refresh timer — re-fetch data from API
@@ -221,8 +287,11 @@ export function DashboardProvider({ children }: DashboardProviderProps) {
     const ms = REFRESH_MS[autoRefresh];
     if (ms) {
       intervalRef.current = setInterval(() => {
+        if (!isPageVisibleRef.current) {
+          return;
+        }
         setRefreshTick((t) => t + 1);
-        loadData();
+        void loadData();
       }, ms);
     }
     return () => {
@@ -276,6 +345,67 @@ export function DashboardProvider({ children }: DashboardProviderProps) {
     searchQuery,
   ]);
 
+  const {
+    filteredEventsBySystemId,
+    filteredSystemEventSummaries,
+    topSystemsByEventVolume,
+  } = useMemo(() => {
+    const eventsBySystemId: Record<string, TelemetryEvent[]> = {};
+    const summariesBySystemId: Record<string, SystemEventSummary> = {};
+    const eventsByHostname: Record<string, number> = {};
+
+    filteredEvents.forEach((event) => {
+      if (!eventsBySystemId[event.system_id]) {
+        eventsBySystemId[event.system_id] = [];
+      }
+      eventsBySystemId[event.system_id].push(event);
+
+      const existingSummary = summariesBySystemId[event.system_id] ?? {
+        eventCount: 0,
+        criticalCount: 0,
+        errorCount: 0,
+        warningCount: 0,
+        healthScore: 0,
+        healthLevel: 'healthy' as SystemHealthLevel,
+        latestEvent: null,
+      };
+
+      existingSummary.eventCount += 1;
+      if (
+        !existingSummary.latestEvent ||
+        new Date(event.event_time).getTime() > new Date(existingSummary.latestEvent.event_time).getTime()
+      ) {
+        existingSummary.latestEvent = event;
+      }
+
+      if (event.severity === 'CRITICAL') existingSummary.criticalCount += 1;
+      if (event.severity === 'ERROR') existingSummary.errorCount += 1;
+      if (event.severity === 'WARNING') existingSummary.warningCount += 1;
+
+      summariesBySystemId[event.system_id] = existingSummary;
+      eventsByHostname[event.hostname] = (eventsByHostname[event.hostname] || 0) + 1;
+    });
+
+    Object.entries(eventsBySystemId).forEach(([systemId, events]) => {
+      events.sort((left, right) => new Date(left.event_time).getTime() - new Date(right.event_time).getTime());
+      const summary = summariesBySystemId[systemId];
+      const healthScore = summary.criticalCount * 5 + summary.errorCount * 2 + summary.warningCount;
+      summary.healthScore = healthScore;
+      summary.healthLevel = scoreToHealthLevel(healthScore);
+    });
+
+    const topSystemEvents = Object.entries(eventsByHostname)
+      .map(([name, events]) => ({ name, events }))
+      .sort((left, right) => right.events - left.events)
+      .slice(0, 6);
+
+    return {
+      filteredEventsBySystemId: eventsBySystemId,
+      filteredSystemEventSummaries: summariesBySystemId,
+      topSystemsByEventVolume: topSystemEvents,
+    };
+  }, [filteredEvents]);
+
   // Filter alerts based on global state
   const filteredAlerts = useMemo(() => alerts.filter((a) => {
     const now = Date.now();
@@ -326,11 +456,16 @@ export function DashboardProvider({ children }: DashboardProviderProps) {
         severityDistribution,
         faultDistribution,
         systemFailures,
+        pipelineHealth,
+        pipelineHealthError,
         isLoading,
         apiError,
         recentEventsLimit: RECENT_EVENTS_LIMIT,
         canUseAggregateViews,
         filteredEvents,
+        filteredEventsBySystemId,
+        filteredSystemEventSummaries,
+        topSystemsByEventVolume,
         filteredAlerts,
         filteredSystems,
         refreshTick,

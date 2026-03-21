@@ -12,7 +12,7 @@ const statusConfig: Record<SystemStatus, { color: string; label: string; dot: st
 
 export default function SystemsPage() {
   const navigate = useNavigate();
-  const { filteredSystems, filteredEvents, timeRange } = useDashboard();
+  const { filteredSystems, filteredSystemEventSummaries, timeRange } = useDashboard();
 
   const onlineCount = filteredSystems.filter((s) => s.status === 'online').length;
   const degradedCount = filteredSystems.filter((s) => s.status === 'degraded').length;
@@ -44,11 +44,9 @@ export default function SystemsPage() {
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
         {filteredSystems.map((system) => {
           const status = statusConfig[system.status];
-
-          // Recent event info
-          const systemEvents = filteredEvents.filter((e) => e.system_id === system.system_id);
-          const recentEvent = systemEvents.sort((a, b) => new Date(b.event_time).getTime() - new Date(a.event_time).getTime())[0];
-          const eventCount = systemEvents.length;
+          const eventSummary = filteredSystemEventSummaries[system.system_id];
+          const recentEvent = eventSummary?.latestEvent ?? null;
+          const eventCount = eventSummary?.eventCount ?? 0;
           const lastFault = recentEvent?.fault_type || 'None';
 
           return (

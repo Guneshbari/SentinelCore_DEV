@@ -16,7 +16,7 @@ import { useDashboard } from '../context/DashboardContext';
 import type { Alert, Severity } from '../types/telemetry';
 
 export default function AlertsPage() {
-  const { filteredEvents, filteredAlerts } = useDashboard();
+  const { filteredAlerts, filteredEventsBySystemId } = useDashboard();
   const [tab, setTab] = useState<'active' | 'acknowledged'>('active');
   const [selectedAlert, setSelectedAlert] = useState<Alert | null>(null);
 
@@ -40,11 +40,8 @@ export default function AlertsPage() {
   // Build correlated events for selected alert
   const correlatedEvents = useMemo(() => {
     if (!selectedAlert) return [];
-    return filteredEvents
-      .filter((e) => e.system_id === selectedAlert.system_id)
-      .sort((a, b) => new Date(a.event_time).getTime() - new Date(b.event_time).getTime())
-      .slice(0, 8);
-  }, [selectedAlert, filteredEvents]);
+    return (filteredEventsBySystemId[selectedAlert.system_id] ?? []).slice(-8);
+  }, [selectedAlert, filteredEventsBySystemId]);
 
   const correlationData = correlatedEvents.map((e) => ({
     time: formatTimestamp(e.event_time).split(', ')[1] || formatTimestamp(e.event_time),

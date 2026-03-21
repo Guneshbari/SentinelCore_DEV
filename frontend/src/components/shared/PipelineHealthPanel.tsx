@@ -1,68 +1,39 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useMemo, useState } from 'react';
 import { Activity, Database, Server, Zap, TrendingUp, BarChart3, Cpu } from 'lucide-react';
 import { Area, AreaChart, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, LineChart, Line } from 'recharts';
-import { fetchPipelineHealth, type PipelineHealthData } from '../../lib/api';
 import { useDashboard } from '../../context/DashboardContext';
 
 type PanelTab = 'overview' | 'kafka' | 'system';
 
 export default function PipelineHealthPanel() {
-  const { systems, allEvents, metrics } = useDashboard();
+  const { systems, metrics, pipelineHealth, pipelineHealthError, topSystemsByEventVolume } = useDashboard();
   const [activeTab, setActiveTab] = useState<PanelTab | null>(null);
-  const [pipeline, setPipeline] = useState<PipelineHealthData | null>(null);
-  const [error, setError] = useState<string | null>(null);
 
-  const loadPipeline = useCallback(async () => {
-    try {
-      const data = await fetchPipelineHealth();
-      setPipeline(data);
-      setError(null);
-    } catch {
-      setError('Pipeline API unavailable');
-    }
-  }, []);
-
-  useEffect(() => {
-    loadPipeline();
-    const interval = setInterval(loadPipeline, 10_000);
-    return () => clearInterval(interval);
-  }, [loadPipeline]);
-
-  const eps = pipeline?.events_per_sec ?? 0;
-  const latency = pipeline?.avg_latency_ms ?? 0;
-  const kafkaLag = pipeline?.kafka_lag ?? 0;
-  const lagStatus = pipeline?.lag_status ?? 'Unknown';
-  const dbWriteRate = pipeline?.db_write_rate ?? 0;
-  const trendEps = pipeline?.trend_eps ?? [];
-  const trendLatency = pipeline?.trend_latency ?? [];
-  const epsChange = pipeline?.eps_change_pct ?? 0;
+  const eps = pipelineHealth?.events_per_sec ?? 0;
+  const latency = pipelineHealth?.avg_latency_ms ?? 0;
+  const kafkaLag = pipelineHealth?.kafka_lag ?? 0;
+  const lagStatus = pipelineHealth?.lag_status ?? 'Unknown';
+  const dbWriteRate = pipelineHealth?.db_write_rate ?? 0;
+  const trendEps = pipelineHealth?.trend_eps ?? [];
+  const trendLatency = pipelineHealth?.trend_latency ?? [];
+  const epsChange = pipelineHealth?.eps_change_pct ?? 0;
 
   // Compute system health data for the tab
-  const systemHealthData = systems.map((s) => ({
+  const systemHealthData = useMemo(() => systems.map((s) => ({
     name: s.hostname,
     cpu: s.cpu_usage_percent,
     memory: s.memory_usage_percent,
     disk: s.disk_free_percent,
-  }));
+  })), [systems]);
 
   // Severity breakdown from metrics
-  const severityTrend = metrics.map((m) => ({
+  const severityTrend = useMemo(() => metrics.map((m) => ({
     time: new Date(m.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }),
     Critical: m.critical_count,
     Error: m.error_count,
     Warning: m.warning_count,
     Info: m.info_count,
-  }));
-
-  // Events by system
-  const eventsBySystem: Record<string, number> = {};
-  allEvents.forEach((e) => {
-    eventsBySystem[e.hostname] = (eventsBySystem[e.hostname] || 0) + 1;
-  });
-  const systemEventData = Object.entries(eventsBySystem)
-    .map(([name, count]) => ({ name, events: count }))
-    .sort((a, b) => b.events - a.events)
-    .slice(0, 6);
+  })), [metrics]);
 
   const tabs: { id: PanelTab; label: string; color: string; hoverColor: string }[] = [
     { id: 'overview', label: 'Pipeline Overview', color: 'accent-blue', hoverColor: 'hover:border-[#3b82f6] hover:text-[#3b82f6]' },
@@ -200,9 +171,9 @@ export default function PipelineHealthPanel() {
       </div>
 
       {/* Error Banner */}
-      {error && (
+      {pipelineHealthError && (
         <div className="mt-3 px-3 py-2 rounded-lg bg-accent-red/10 border border-accent-red/30 text-xs text-accent-red">
-          {error}
+          {pipelineHealthError}
         </div>
       )}
 
@@ -237,7 +208,7 @@ export default function PipelineHealthPanel() {
                 Kafka — Events Per System
               </h4>
               <ResponsiveContainer width="100%" height={200}>
-                <BarChart data={systemEventData} margin={{ top: 5, right: 5, left: -10, bottom: 0 }}>
+                <BarChart data={topSystemsByEventVolume} margin={{ top: 5, right: 5, left: -10, bottom: 0 }}>
                   <defs>
                     <linearGradient id="kafkaGrad" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="0%" stopColor="#8b5cf6" />

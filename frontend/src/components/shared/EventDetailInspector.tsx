@@ -20,14 +20,11 @@ interface EventDetailInspectorProps {
 }
 
 export default function EventDetailInspector({ event, onClose }: EventDetailInspectorProps) {
+  const { filteredEventsBySystemId } = useDashboard();
   if (!event) return null;
 
-  const { filteredEvents } = useDashboard();
-
   // Build correlation timeline: find other events from same system
-  const systemEvents = filteredEvents
-    .filter((e) => e.system_id === event.system_id)
-    .sort((a, b) => new Date(a.event_time).getTime() - new Date(b.event_time).getTime());
+  const systemEvents = filteredEventsBySystemId[event.system_id] ?? [];
 
   const correlationData = systemEvents.map((e) => ({
     time: formatTimestamp(e.event_time).split(', ')[1] || formatTimestamp(e.event_time),

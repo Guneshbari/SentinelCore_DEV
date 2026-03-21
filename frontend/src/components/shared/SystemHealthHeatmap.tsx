@@ -1,19 +1,5 @@
 import { useNavigate } from 'react-router-dom';
 import { useDashboard } from '../../context/DashboardContext';
-import type { SystemInfo } from '../../types/telemetry';
-
-function getHealthScore(system: SystemInfo, filteredEvents: { system_id: string; severity: string }[]): { score: number; level: 'healthy' | 'warning' | 'error' | 'critical' } {
-  const systemEvents = filteredEvents.filter((e) => e.system_id === system.system_id);
-  const criticals = systemEvents.filter((e) => e.severity === 'CRITICAL').length;
-  const errors = systemEvents.filter((e) => e.severity === 'ERROR').length;
-  const warnings = systemEvents.filter((e) => e.severity === 'WARNING').length;
-  const score = criticals * 5 + errors * 2 + warnings;
-
-  if (score >= 10) return { score, level: 'critical' };
-  if (score >= 5) return { score, level: 'error' };
-  if (score >= 2) return { score, level: 'warning' };
-  return { score, level: 'healthy' };
-}
 
 const levelColors: Record<string, { bg: string; border: string; text: string; glow: string }> = {
   healthy: { bg: 'bg-[#22c55e]/10', border: 'border-[#22c55e]/30', text: 'text-[#22c55e]', glow: '' },
@@ -24,11 +10,19 @@ const levelColors: Record<string, { bg: string; border: string; text: string; gl
 
 export default function SystemHealthHeatmap() {
   const navigate = useNavigate();
-  const { filteredEvents, filteredSystems } = useDashboard();
+  const { filteredSystems, filteredSystemEventSummaries } = useDashboard();
 
   const systemHealth = filteredSystems.map((s) => ({
     ...s,
-    health: getHealthScore(s, filteredEvents),
+    health: filteredSystemEventSummaries[s.system_id] ?? {
+      eventCount: 0,
+      criticalCount: 0,
+      errorCount: 0,
+      warningCount: 0,
+      healthScore: 0,
+      healthLevel: 'healthy',
+      latestEvent: null,
+    },
   }));
 
   return (
@@ -50,7 +44,7 @@ export default function SystemHealthHeatmap() {
 
       <div className="grid grid-cols-3 md:grid-cols-6 gap-2">
         {systemHealth.map((s) => {
-          const colors = levelColors[s.health.level];
+          const colors = levelColors[s.health.healthLevel];
           return (
             <button
               key={s.system_id}
@@ -70,5 +64,3 @@ export default function SystemHealthHeatmap() {
     </div>
   );
 }
-
-export { getHealthScore };
