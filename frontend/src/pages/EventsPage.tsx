@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { ArrowUpDown } from 'lucide-react';
 import SeverityBadge from '../components/shared/SeverityBadge';
 import LiveEventStream from '../components/shared/LiveEventStream';
@@ -34,14 +35,20 @@ function SortHeader({ label, sortId, activeSortKey, onToggleSort }: SortHeaderPr
 }
 
 export default function EventsPage() {
-  const { filteredEvents, recentEventsLimit } = useDashboard();
+  const { filteredEvents } = useDashboard();
+  const [searchParams] = useSearchParams();
+  const systemFilter = searchParams.get('system');
   const [page, setPage] = useState(0);
   const [sortKey, setSortKey] = useState<SortKey>('event_time');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [selectedEvent, setSelectedEvent] = useState<TelemetryEvent | null>(null);
 
   const sorted = useMemo(() => {
-    return [...filteredEvents].sort((a, b) => {
+    const baseEvents = systemFilter
+      ? filteredEvents.filter((e) => e.system_id === systemFilter)
+      : filteredEvents;
+
+    return [...baseEvents].sort((a, b) => {
       let cmp = 0;
       if (sortKey === 'event_time') cmp = new Date(a.event_time).getTime() - new Date(b.event_time).getTime();
       else if (sortKey === 'severity') cmp = severityOrder[a.severity] - severityOrder[b.severity];
@@ -64,11 +71,13 @@ export default function EventsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-bold text-text-primary">Event Explorer</h2>
+          <h2 className="text-lg font-bold text-text-primary">
+            {systemFilter ? `Event Explorer: ${systemFilter}` : 'Event Explorer'}
+          </h2>
           <p className="text-xs text-text-muted mt-0.5">Investigate recent telemetry events</p>
         </div>
         <span className="text-xs text-text-muted glass-panel rounded-lg px-3 py-1.5">
-          {filteredEvents.length} of {recentEventsLimit} recent events loaded
+          {sorted.length} of {filteredEvents.length} events matching filters
         </span>
       </div>
 

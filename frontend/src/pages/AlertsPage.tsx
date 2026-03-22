@@ -19,6 +19,35 @@ export default function AlertsPage() {
   const { filteredAlerts, filteredEventsBySystemId } = useDashboard();
   const [tab, setTab] = useState<'active' | 'acknowledged'>('active');
   const [selectedAlert, setSelectedAlert] = useState<Alert | null>(null);
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+
+  const showToast = (message: string, type: 'success' | 'error') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  const handleAction = async (action: 'acknowledge' | 'escalate') => {
+    if (!selectedAlert) return;
+    try {
+      const res = await fetch(`http://localhost:8000/alerts/${action}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ alert_id: selectedAlert.alert_id }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.success) {
+        showToast(`Alert ${action}d successfully`, 'success');
+        const updated = { ...selectedAlert, [action === 'acknowledge' ? 'acknowledged' : 'escalated']: true };
+        setSelectedAlert(updated);
+        // Optimistic global mutation before the next auto-refresh bounds it correctly
+        Object.assign(selectedAlert, updated);
+      } else {
+        showToast(`Failed to ${action} alert`, 'error');
+      }
+    } catch {
+      showToast(`Network error while trying to ${action}`, 'error');
+    }
+  };
 
   const activeAlerts = useMemo(() => getActiveAlerts(filteredAlerts), [filteredAlerts]);
   const ackAlerts = useMemo(() => getAcknowledgedAlerts(filteredAlerts), [filteredAlerts]);
@@ -145,10 +174,16 @@ export default function AlertsPage() {
 
                 {!selectedAlert.acknowledged && (
                   <div className="flex gap-2 pt-2">
-                    <button className="flex items-center gap-1.5 px-4 py-2 bg-signal-primary hover:bg-signal-primary/80 text-black text-xs font-medium rounded-lg transition-colors shadow-[0_0_12px_rgba(0,229,255,0.2)]">
+                    <button 
+                      onClick={() => handleAction('acknowledge')}
+                      className="flex items-center gap-1.5 px-4 py-2 bg-signal-primary hover:bg-signal-primary/80 text-black text-xs font-medium rounded-lg transition-colors shadow-[0_0_12px_rgba(0,229,255,0.2)]"
+                    >
                       <Check className="w-3.5 h-3.5" /> Acknowledge
                     </button>
-                    <button className="flex items-center gap-1.5 px-4 py-2 border border-border text-text-secondary hover:text-text-primary hover:bg-bg-hover text-xs font-medium rounded-lg transition-colors">
+                    <button 
+                      onClick={() => handleAction('escalate')}
+                      className="flex items-center gap-1.5 px-4 py-2 border border-border text-text-secondary hover:text-text-primary hover:bg-bg-hover text-xs font-medium rounded-lg transition-colors"
+                    >
                       <ArrowUpRight className="w-3.5 h-3.5" /> Escalate
                     </button>
                   </div>
@@ -185,6 +220,15 @@ export default function AlertsPage() {
           )}
         </div>
       </div>
+
+      {/* Floating Toast Notification */}
+      {toast && (
+        <div className={`fixed bottom-6 right-6 px-4 py-3 rounded-lg shadow-xl border flex items-center gap-3 animate-fade-in z-50 ${
+          toast.type === 'success' ? 'bg-signal-primary/10 border-signal-primary/50 text-signal-primary' : 'bg-severity-critical/10 border-severity-critical/50 text-severity-critical'
+        }`}>
+          <div className="text-sm font-medium">{toast.message}</div>
+        </div>
+      )}
     </div>
   );
 }
