@@ -16,25 +16,25 @@ export default function DashboardCard({
   subtitle,
   subtitleColor = 'text-text-secondary',
   icon,
-  iconBg = 'bg-signal-primary/15',
+  iconBg = 'bg-border',
   pulse = false,
 }: DashboardCardProps) {
   return (
-    <div className="glass-panel panel-glow hover-lift rounded-xl p-5 animate-fade-in group">
+    <div className="glass-panel-solid rounded-md p-4 group">
       <div className="flex items-start justify-between">
         <div>
-          <p className="text-[10px] font-semibold text-text-muted uppercase tracking-[0.1em] mb-2">
+          <p className="text-[11px] font-semibold text-text-muted tracking-wide mb-1.5">
             {title}
           </p>
-          <p className="text-3xl font-bold text-text-primary tracking-tight">{value}</p>
+          <p className="text-2xl font-bold text-text-primary tracking-tight">{value}</p>
           {subtitle && (
-            <p className={`text-xs mt-1.5 font-medium ${subtitleColor}`}>{subtitle}</p>
+            <p className={`text-[11px] mt-1 font-medium ${subtitleColor}`}>{subtitle}</p>
           )}
         </div>
-        <div className={`relative w-10 h-10 rounded-lg ${iconBg} flex items-center justify-center transition-transform duration-200 group-hover:scale-110`}>
+        <div className={`relative w-8 h-8 rounded shrink-0 ${iconBg} flex items-center justify-center opacity-80`}>
           {icon}
           {pulse && (
-            <span className="absolute -top-1 -right-1 w-3 h-3 bg-accent-red rounded-full animate-pulse-glow" />
+            <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-accent-red rounded-full animate-pulse" />
           )}
         </div>
       </div>

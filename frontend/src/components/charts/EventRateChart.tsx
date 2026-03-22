@@ -18,23 +18,21 @@ export default function EventRateChart() {
   }));
 
   return (
-    <div className="glass-panel panel-glow hover-lift rounded-xl p-5 animate-fade-in">
-      <h3 className="text-xs font-semibold text-text-primary uppercase tracking-wider mb-1">Event Rate</h3>
-      <p className="text-[10px] text-text-muted mb-4">Events per hour over the last 24 hours</p>
-      <div className="neon-cyan">
+    <div className="glass-panel-solid rounded-md border border-border p-4 bg-bg-surface">
+      <div className="flex items-center justify-between mb-3">
+        <div>
+          <h3 className="text-[11px] font-bold text-text-primary uppercase tracking-wider">Event Rate</h3>
+          <p className="text-[10px] text-text-muted mt-0.5">Events per hour over the last 24 hours</p>
+        </div>
+      </div>
+      <div>
         <ResponsiveContainer width="100%" height={240}>
           <AreaChart data={data} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
-            <defs>
-              <linearGradient id="eventGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#00e5ff" stopOpacity={0.3} />
-                <stop offset="100%" stopColor="#00e5ff" stopOpacity={0} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="#1a2230" strokeOpacity={0.25} vertical={false} />
-            <XAxis dataKey="time" tick={{ fill: '#556171', fontSize: 10 }} axisLine={{ stroke: '#1a2230' }} tickLine={false} />
-            <YAxis tick={{ fill: '#556171', fontSize: 10 }} axisLine={false} tickLine={false} />
-            <Tooltip contentStyle={{ backgroundColor: '#05080f', border: '1px solid #1a2230', borderRadius: 8, fontSize: 11, color: '#e6edf3' }} />
-            <Area type="monotone" dataKey="events" stroke="#00e5ff" strokeWidth={2} fill="url(#eventGrad)" />
+            <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" strokeOpacity={0.25} vertical={false} />
+            <XAxis dataKey="time" tick={{ fill: '#64748b', fontSize: 10 }} axisLine={{ stroke: '#1e293b' }} tickLine={false} />
+            <YAxis tick={{ fill: '#64748b', fontSize: 10 }} axisLine={false} tickLine={false} />
+            <Tooltip contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: 4, fontSize: 10, color: '#f8fafc' }} />
+            <Area type="monotone" dataKey="events" stroke="#3b82f6" strokeWidth={1.5} fill="#3b82f6" fillOpacity={0.1} />
           </AreaChart>
         </ResponsiveContainer>
       </div>

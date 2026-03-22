@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Check, ArrowUpRight } from 'lucide-react';
+import { Check, ArrowUpRight, ArrowUpDown } from 'lucide-react';
 import {
   ComposedChart,
   Area,
@@ -11,9 +11,36 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import SeverityBadge from '../components/shared/SeverityBadge';
-import { formatTimestamp, getActiveAlerts, getAcknowledgedAlerts } from '../data/mockData';
+import { timeAgo, formatTimestamp, getActiveAlerts, getAcknowledgedAlerts } from '../data/mockData';
 import { useDashboard } from '../context/DashboardContext';
-import type { Alert, Severity } from '../types/telemetry';
+import type { Alert } from '../types/telemetry';
+
+type SortKey = 'severity' | 'system' | 'title' | 'age' | 'status';
+type SortDir = 'asc' | 'desc';
+
+interface SortHeaderProps {
+  label: string;
+  sortId: SortKey;
+  activeSortKey: SortKey;
+  onToggleSort: (sortKey: SortKey) => void;
+  align?: 'left' | 'right' | 'center';
+}
+
+function SortHeader({ label, sortId, activeSortKey, onToggleSort, align = 'left' }: SortHeaderProps) {
+  return (
+    <th
+      onClick={() => onToggleSort(sortId)}
+      className={`text-${align} text-[10px] font-semibold text-text-muted uppercase tracking-wider py-3 px-4 cursor-pointer hover:text-text-primary transition-colors select-none bg-bg-surface sticky top-0 z-10`}
+    >
+      <span className={`inline-flex items-center gap-1.5 ${align === 'right' ? 'flex-row-reverse' : ''}`}>
+        {label}
+        <ArrowUpDown className={`w-3 h-3 ${activeSortKey === sortId ? 'text-signal-primary' : 'opacity-30'}`} />
+      </span>
+    </th>
+  );
+}
+
+const severityValue = { CRITICAL: 4, ERROR: 3, WARNING: 2, INFO: 1 };
 
 export default function AlertsPage() {
   const { filteredAlerts, filteredEventsBySystemId } = useDashboard();
@@ -21,52 +48,60 @@ export default function AlertsPage() {
   const [selectedAlert, setSelectedAlert] = useState<Alert | null>(null);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
+  const [sortKey, setSortKey] = useState<SortKey>('severity');
+  const [sortDir, setSortDir] = useState<SortDir>('desc');
+
   const showToast = (message: string, type: 'success' | 'error') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3000);
   };
 
-  const handleAction = async (action: 'acknowledge' | 'escalate') => {
-    if (!selectedAlert) return;
+  const handleAction = async (action: 'acknowledge' | 'escalate', alert: Alert, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
     try {
       const res = await fetch(`http://localhost:8000/alerts/${action}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ alert_id: selectedAlert.alert_id }),
+        body: JSON.stringify({ alert_id: alert.alert_id }),
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok && data.success) {
-        showToast(`Alert ${action}d successfully`, 'success');
-        const updated = { ...selectedAlert, [action === 'acknowledge' ? 'acknowledged' : 'escalated']: true };
-        setSelectedAlert(updated);
-        // Optimistic global mutation before the next auto-refresh bounds it correctly
-        Object.assign(selectedAlert, updated);
+        showToast(`Alert ${action}d`, 'success');
+        const updated = { ...alert, [action === 'acknowledge' ? 'acknowledged' : 'escalated']: true };
+        if (selectedAlert?.alert_id === alert.alert_id) setSelectedAlert(updated);
+        Object.assign(alert, updated); // Optimistic memory mutation
       } else {
-        showToast(`Failed to ${action} alert`, 'error');
+        showToast(`Failed to ${action}`, 'error');
       }
     } catch {
-      showToast(`Network error while trying to ${action}`, 'error');
+      showToast('Network error', 'error');
     }
   };
 
   const activeAlerts = useMemo(() => getActiveAlerts(filteredAlerts), [filteredAlerts]);
   const ackAlerts = useMemo(() => getAcknowledgedAlerts(filteredAlerts), [filteredAlerts]);
-  const displayed = tab === 'active' ? activeAlerts : ackAlerts;
+  const targetAlerts = tab === 'active' ? activeAlerts : ackAlerts;
 
-  const severityCounts = useMemo(() => {
-    const counts: Record<Severity, number> = { CRITICAL: 0, ERROR: 0, WARNING: 0, INFO: 0 };
-    filteredAlerts.filter((a) => !a.acknowledged).forEach((a) => counts[a.severity]++);
-    return counts;
-  }, [filteredAlerts]);
+  const handleSort = (key: SortKey) => {
+    if (sortKey === key) setSortDir(sortDir === 'asc' ? 'desc' : 'asc');
+    else { setSortKey(key); setSortDir('desc'); }
+  };
 
-  const summaryCards: { severity: Severity; cssClass: string }[] = [
-    { severity: 'CRITICAL', cssClass: 'severity-border-critical' },
-    { severity: 'ERROR', cssClass: 'severity-border-error' },
-    { severity: 'WARNING', cssClass: 'severity-border-warning' },
-    { severity: 'INFO', cssClass: 'severity-border-info' },
-  ];
+  const sortedAlerts = useMemo(() => {
+    return [...targetAlerts].sort((a, b) => {
+      let aV: any, bV: any;
+      if (sortKey === 'severity') { aV = severityValue[a.severity]; bV = severityValue[b.severity]; }
+      else if (sortKey === 'system') { aV = a.hostname; bV = b.hostname; }
+      else if (sortKey === 'title') { aV = a.title; bV = b.title; }
+      else if (sortKey === 'age') { aV = new Date(a.triggered_at).getTime(); bV = new Date(b.triggered_at).getTime(); }
+      else if (sortKey === 'status') { aV = a.acknowledged ? 1 : a.escalated ? 2 : 0; bV = b.acknowledged ? 1 : b.escalated ? 2 : 0; }
+      
+      if (aV < bV) return sortDir === 'asc' ? -1 : 1;
+      if (aV > bV) return sortDir === 'asc' ? 1 : -1;
+      return 0;
+    });
+  }, [targetAlerts, sortKey, sortDir]);
 
-  // Build correlated events for selected alert
   const correlatedEvents = useMemo(() => {
     if (!selectedAlert) return [];
     return (filteredEventsBySystemId[selectedAlert.system_id] ?? []).slice(-8);
@@ -76,157 +111,185 @@ export default function AlertsPage() {
     time: formatTimestamp(e.event_time).split(', ')[1] || formatTimestamp(e.event_time),
     cpu: e.cpu_usage_percent,
     memory: e.memory_usage_percent,
-    severity: e.severity === 'CRITICAL' ? 100 : e.severity === 'ERROR' ? 75 : e.severity === 'WARNING' ? 50 : 25,
   }));
 
   return (
-    <div className="space-y-5">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-lg font-bold text-text-primary">Incident Queue</h2>
-          <p className="text-xs text-text-muted mt-0.5">Active alerts & incident monitoring</p>
-        </div>
-        <div className="flex glass-panel rounded-lg overflow-hidden">
-          <button
-            onClick={() => setTab('active')}
-            className={`px-4 py-2 text-xs font-medium transition-colors ${
-              tab === 'active' ? 'bg-signal-primary text-black shadow-[0_0_12px_rgba(0,229,255,0.3)]' : 'text-text-secondary hover:text-text-primary'
-            }`}
-          >Active ({activeAlerts.length})</button>
-          <button
-            onClick={() => setTab('acknowledged')}
-            className={`px-4 py-2 text-xs font-medium transition-colors ${
-              tab === 'acknowledged' ? 'bg-signal-primary text-black shadow-[0_0_12px_rgba(0,229,255,0.3)]' : 'text-text-secondary hover:text-text-primary'
-            }`}
-          >Acknowledged ({ackAlerts.length})</button>
-        </div>
-      </div>
-
-      {/* Severity Summary */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-        {summaryCards.map(({ severity, cssClass }) => (
-          <div key={severity} className={`glass-panel panel-glow ${cssClass} rounded-lg px-4 py-3`}>
-            <p className="text-[10px] text-text-muted uppercase tracking-wider font-semibold">{severity}</p>
-            <p className="text-2xl font-bold text-text-primary mt-1">{severityCounts[severity]}</p>
+    <div className="flex h-[calc(100vh-100px)] gap-4">
+      {/* Main Queue Queue */}
+      <div className="flex-1 flex flex-col min-w-0">
+        <div className="flex items-center justify-between mb-4 shrink-0">
+          <div>
+            <h2 className="text-lg font-bold text-text-primary tracking-tight">Incident Queue</h2>
+            <p className="text-[11px] text-text-muted mt-0.5">Active alerts & priority triage</p>
           </div>
-        ))}
-      </div>
-
-      {/* ── Incident Console: Alert Timeline (left) + Investigation (right) ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-        {/* Alert Timeline */}
-        <div className="lg:col-span-3 glass-panel panel-glow rounded-xl p-4 space-y-1 animate-fade-in">
-          <h3 className="text-xs font-semibold text-text-primary uppercase tracking-wider mb-3">Alert Timeline</h3>
-          <div className="max-h-[500px] overflow-y-auto space-y-1">
-            {displayed.map((alert) => (
-              <button
-                key={alert.alert_id}
-                onClick={() => setSelectedAlert(alert)}
-                className={`w-full text-left flex items-start gap-3 px-3 py-3 rounded-lg transition-all ${
-                  selectedAlert?.alert_id === alert.alert_id
-                    ? 'bg-signal-primary/10 border border-signal-primary/30 shadow-[0_0_8px_rgba(0,229,255,0.1)]'
-                    : 'hover:bg-bg-hover border border-transparent'
-                }`}
-              >
-                <div className="mt-1"><SeverityBadge severity={alert.severity} /></div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-text-primary truncate">{alert.title}</p>
-                  <p className="text-[11px] text-text-muted mt-0.5">{alert.hostname} · {formatTimestamp(alert.triggered_at)}</p>
-                  <p className="text-[11px] text-text-secondary mt-1 truncate">{alert.description}</p>
-                </div>
-              </button>
-            ))}
-            {displayed.length === 0 && (
-              <p className="text-sm text-text-muted text-center py-8">No alerts in this category</p>
-            )}
+          <div className="flex glass-panel-solid rounded-md overflow-hidden border border-border">
+            <button
+              onClick={() => { setTab('active'); setSelectedAlert(null); }}
+              className={`px-4 py-1.5 text-xs font-semibold transition-colors ${
+                tab === 'active' ? 'bg-signal-primary/20 text-signal-primary' : 'text-text-secondary hover:text-text-primary'
+              }`}
+            >Active ({activeAlerts.length})</button>
+            <button
+              onClick={() => { setTab('acknowledged'); setSelectedAlert(null); }}
+              className={`px-4 py-1.5 text-xs font-semibold transition-colors border-l border-border ${
+                tab === 'acknowledged' ? 'bg-signal-primary/20 text-signal-primary' : 'text-text-secondary hover:text-text-primary'
+              }`}
+            >Acknowledged ({ackAlerts.length})</button>
           </div>
         </div>
 
-        {/* Alert Investigation + Resource Correlation */}
-        <div className="lg:col-span-2 space-y-4">
-          {/* Investigation Details */}
-          <div className="glass-panel panel-glow rounded-xl p-5 animate-fade-in">
-            <h3 className="text-xs font-semibold text-text-primary uppercase tracking-wider mb-4">Alert Investigation</h3>
-            {selectedAlert ? (
-              <div className="space-y-4">
-                <div>
-                  <h4 className="text-base font-bold text-text-primary">{selectedAlert.title}</h4>
-                  <div className="mt-2"><SeverityBadge severity={selectedAlert.severity} size="md" /></div>
-                </div>
-
-                <div className="space-y-2 text-xs">
-                  {[
-                    { label: 'Alert ID', value: selectedAlert.alert_id, mono: true },
-                    { label: 'System', value: selectedAlert.hostname },
-                    { label: 'Rule', value: selectedAlert.rule },
-                    { label: 'Triggered', value: formatTimestamp(selectedAlert.triggered_at) },
-                    ...(selectedAlert.acknowledged ? [{ label: 'Ack by', value: selectedAlert.acknowledged_by || '' }] : []),
-                  ].map((f) => (
-                    <div key={f.label} className="flex justify-between py-1.5 border-b border-border/30">
-                      <span className="text-text-muted">{f.label}</span>
-                      <span className={`text-text-secondary ${f.mono ? 'font-mono' : ''}`}>{f.value}</span>
-                    </div>
-                  ))}
-                </div>
-
-                <p className="text-xs text-text-secondary leading-relaxed">{selectedAlert.description}</p>
-
-                {!selectedAlert.acknowledged && (
-                  <div className="flex gap-2 pt-2">
-                    <button 
-                      onClick={() => handleAction('acknowledge')}
-                      className="flex items-center gap-1.5 px-4 py-2 bg-signal-primary hover:bg-signal-primary/80 text-black text-xs font-medium rounded-lg transition-colors shadow-[0_0_12px_rgba(0,229,255,0.2)]"
+        {/* Table Wrapper */}
+        <div className="flex-1 glass-panel-solid rounded-md border border-border flex flex-col overflow-hidden">
+          <div className="flex-1 overflow-y-auto">
+            <table className="w-full text-left border-collapse whitespace-nowrap">
+              <thead>
+                <tr className="border-b border-border/80">
+                  <SortHeader label="Severity" sortId="severity" activeSortKey={sortKey} onToggleSort={handleSort} />
+                  <SortHeader label="Title" sortId="title" activeSortKey={sortKey} onToggleSort={handleSort} />
+                  <SortHeader label="System" sortId="system" activeSortKey={sortKey} onToggleSort={handleSort} />
+                  <SortHeader label="Age" sortId="age" activeSortKey={sortKey} onToggleSort={handleSort} />
+                  <SortHeader label="Status" sortId="status" activeSortKey={sortKey} onToggleSort={handleSort} />
+                  <th className="px-4 py-3 bg-bg-surface sticky top-0 z-10 w-32" />
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/40">
+                {sortedAlerts.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="px-5 py-12 text-center text-sm text-text-muted">
+                      No alerts found in this queue.
+                    </td>
+                  </tr>
+                ) : (
+                  sortedAlerts.map((alert) => (
+                    <tr
+                      key={alert.alert_id}
+                      onClick={() => setSelectedAlert(alert)}
+                      className={`cursor-pointer transition-colors ${
+                        selectedAlert?.alert_id === alert.alert_id ? 'bg-signal-primary/10' : 
+                        !alert.acknowledged ? 'bg-accent-red/5 hover:bg-bg-hover' : 'hover:bg-bg-hover'
+                      }`}
                     >
-                      <Check className="w-3.5 h-3.5" /> Acknowledge
-                    </button>
-                    <button 
-                      onClick={() => handleAction('escalate')}
-                      className="flex items-center gap-1.5 px-4 py-2 border border-border text-text-secondary hover:text-text-primary hover:bg-bg-hover text-xs font-medium rounded-lg transition-colors"
-                    >
-                      <ArrowUpRight className="w-3.5 h-3.5" /> Escalate
-                    </button>
-                  </div>
+                      <td className="px-4 py-2"><SeverityBadge severity={alert.severity} size="sm" /></td>
+                      <td className="px-4 py-2 max-w-[240px] truncate text-xs font-semibold text-text-primary">
+                        {alert.title}
+                      </td>
+                      <td className="px-4 py-2">
+                        <div className="flex flex-col">
+                          <span className="text-xs text-text-primary">{alert.hostname}</span>
+                          <span className="text-[10px] text-text-muted font-mono">{alert.system_id}</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-2 text-xs text-text-secondary">{timeAgo(alert.triggered_at)}</td>
+                      <td className="px-4 py-2 text-xs text-text-secondary">
+                        {alert.acknowledged ? 'Acknowledged' : alert.escalated ? 'Escalated' : 'Open'}
+                      </td>
+                      <td className="px-4 py-2 text-right">
+                        {!alert.acknowledged && (
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              onClick={(e) => handleAction('acknowledge', alert, e)}
+                              className="p-1.5 rounded bg-signal-primary/10 text-signal-primary hover:bg-signal-primary/25 transition-colors"
+                              title="Acknowledge"
+                            >
+                              <Check className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={(e) => handleAction('escalate', alert, e)}
+                              className="p-1.5 rounded bg-bg-surface border border-border text-text-secondary hover:text-text-primary transition-colors"
+                              title="Escalate"
+                            >
+                              <ArrowUpRight className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  ))
                 )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      {/* Detail Drawer (Right Side) */}
+      {selectedAlert && (
+        <div className="w-[400px] shrink-0 flex flex-col glass-panel-solid rounded-md border border-border animate-slide-in overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-bg-surface shrink-0">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-text-primary">Alert Details</h3>
+            <button onClick={() => setSelectedAlert(null)} className="text-text-muted hover:text-text-primary text-xs">✕</button>
+          </div>
+          <div className="flex-1 overflow-y-auto p-4 space-y-5">
+            <div>
+              <div className="flex items-center gap-2 mb-2">
+                <SeverityBadge severity={selectedAlert.severity} />
+                <span className="text-[10px] text-text-muted">{timeAgo(selectedAlert.triggered_at)}</span>
               </div>
-            ) : (
-              <div className="flex flex-col items-center justify-center py-12 text-text-muted">
-                <p className="text-sm">Select an alert to investigate</p>
+              <h4 className="text-sm font-bold text-text-primary leading-snug">{selectedAlert.title}</h4>
+              <p className="text-xs text-text-secondary mt-2 leading-relaxed">{selectedAlert.description}</p>
+            </div>
+
+            <div className="space-y-1 text-[11px]">
+              <div className="flex justify-between py-1.5 border-b border-border/40">
+                <span className="text-text-muted">Host</span>
+                <span className="text-text-primary font-medium">{selectedAlert.hostname}</span>
+              </div>
+              <div className="flex justify-between py-1.5 border-b border-border/40">
+                <span className="text-text-muted">Rule</span>
+                <span className="text-text-primary font-mono">{selectedAlert.rule}</span>
+              </div>
+              <div className="flex justify-between py-1.5 border-b border-border/40">
+                <span className="text-text-muted">Status</span>
+                <span className="text-text-primary">{selectedAlert.acknowledged ? 'Acknowledged' : selectedAlert.escalated ? 'Escalated' : 'Open'}</span>
+              </div>
+            </div>
+
+            {/* Actions block in drawer */}
+            {!selectedAlert.acknowledged && (
+              <div className="flex gap-2 pt-2">
+                <button 
+                  onClick={() => handleAction('acknowledge', selectedAlert)}
+                  className="flex-1 flex justify-center items-center gap-1.5 py-1.5 bg-signal-primary/20 text-signal-primary text-xs font-semibold rounded border border-signal-primary/30 hover:bg-signal-primary/30 transition-colors"
+                >
+                  <Check className="w-3.5 h-3.5" /> Ack
+                </button>
+                <button 
+                  onClick={() => handleAction('escalate', selectedAlert)}
+                  className="flex-1 flex justify-center items-center gap-1.5 py-1.5 bg-bg-surface text-text-secondary text-xs font-semibold rounded border border-border hover:text-text-primary hover:bg-bg-hover transition-colors"
+                >
+                  <ArrowUpRight className="w-3.5 h-3.5" /> Escalate
+                </button>
+              </div>
+            )}
+
+            {/* Flattened Correlation Chart */}
+            {correlationData.length > 0 && (
+              <div className="pt-2">
+                <h5 className="text-[10px] font-semibold text-text-muted uppercase tracking-wider mb-3">Resource Trends</h5>
+                <div className="h-[120px] w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <ComposedChart data={correlationData} margin={{ top: 0, right: 0, left: -25, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="2 2" stroke="#1e293b" vertical={false} />
+                      <XAxis dataKey="time" tick={{ fill: '#64748b', fontSize: 9 }} axisLine={false} tickLine={false} />
+                      <YAxis tick={{ fill: '#64748b', fontSize: 9 }} axisLine={false} tickLine={false} domain={[0, 100]} />
+                      <Tooltip contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: 4, fontSize: 10, color: '#f8fafc' }} />
+                      <Area type="step" dataKey="cpu" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.1} strokeWidth={1} />
+                      <Line type="step" dataKey="memory" stroke="#8b5cf6" strokeWidth={1} dot={false} />
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                </div>
               </div>
             )}
           </div>
-
-          {/* Resource Correlation Chart */}
-          {selectedAlert && correlationData.length > 0 && (
-            <div className="glass-panel panel-glow rounded-xl p-5 animate-fade-in">
-              <h5 className="text-[10px] font-semibold text-text-muted uppercase tracking-wider mb-3">Resource Correlation — {selectedAlert.hostname}</h5>
-              <ResponsiveContainer width="100%" height={160}>
-                <ComposedChart data={correlationData} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="cpuAlert" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#00e5ff" stopOpacity={0.3} />
-                      <stop offset="100%" stopColor="#00e5ff" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1a2230" strokeOpacity={0.25} vertical={false} />
-                  <XAxis dataKey="time" tick={{ fill: '#556171', fontSize: 9 }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fill: '#556171', fontSize: 9 }} axisLine={false} tickLine={false} domain={[0, 100]} />
-                  <Tooltip contentStyle={{ backgroundColor: '#05080f', border: '1px solid #1a2230', borderRadius: 8, fontSize: 11, color: '#e6edf3' }} />
-                  <Area type="monotone" dataKey="cpu" stroke="#00e5ff" fill="url(#cpuAlert)" strokeWidth={1.5} name="CPU %" />
-                  <Line type="monotone" dataKey="memory" stroke="#8b5cf6" strokeWidth={1.5} dot={false} name="Memory %" />
-                </ComposedChart>
-              </ResponsiveContainer>
-            </div>
-          )}
         </div>
-      </div>
+      )}
 
       {/* Floating Toast Notification */}
       {toast && (
-        <div className={`fixed bottom-6 right-6 px-4 py-3 rounded-lg shadow-xl border flex items-center gap-3 animate-fade-in z-50 ${
-          toast.type === 'success' ? 'bg-signal-primary/10 border-signal-primary/50 text-signal-primary' : 'bg-severity-critical/10 border-severity-critical/50 text-severity-critical'
+        <div className={`fixed bottom-6 right-6 px-4 py-3 rounded shadow-lg border flex items-center gap-3 animate-fade-in z-50 ${
+          toast.type === 'success' ? 'bg-[#0f172a] border-signal-primary/50 text-signal-primary' : 'bg-[#0f172a] border-accent-red/50 text-accent-red'
         }`}>
-          <div className="text-sm font-medium">{toast.message}</div>
+          <div className="text-[11px] font-semibold">{toast.message}</div>
         </div>
       )}
     </div>

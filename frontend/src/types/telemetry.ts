@@ -51,6 +51,8 @@ export interface Alert {
   acknowledged: boolean;
   acknowledged_at?: string;
   acknowledged_by?: string;
+  escalated?: boolean;
+  escalated_at?: string;
 }
 
 export interface MetricPoint {
@@ -80,3 +82,4 @@ export interface SystemFailureCount {
   system_id: string;
   failure_count: number;
 }
+
