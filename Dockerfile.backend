@@ -1,0 +1,26 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies if any, libpq-dev is often needed for psycopg2
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install python dependencies.
+# We copy requirements.txt to leverage Docker cache for dependencies.
+COPY requirements.txt .
+
+RUN pip install --no-cache-dir -r requirements.txt || true
+# Provide essential deps individually to ensure they are available even if requirements.txt misses them
+RUN pip install --no-cache-dir uvicorn fastapi psycopg2-binary kafka-python-ng requests psutil
+
+# Copy source code
+COPY src/ /app/src/
+
+# Required to allow python -m to find local modules
+ENV PYTHONPATH=/app/src
+
+# Default entrypoint for typical web backend, but overridable in docker-compose
+CMD ["uvicorn", "api_server:app", "--host", "0.0.0.0", "--port", "8000"]

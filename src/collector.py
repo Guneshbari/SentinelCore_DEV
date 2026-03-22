@@ -754,25 +754,15 @@ class KafkaManager:
                     result['failed'] += max(1, chunk_event_count)
 
             for chunk_event_count, future in futures:
-                def _get_future(f=future):
-                    return f.get(timeout=10)
-
-                _, ok = timeout_wrapper(
-                    _get_future,
-                    timeout_secs=12.0,
-                    label=f"kafka_future/{system_id}",
-                )
-                if ok:
-                    result['sent'] += max(1, chunk_event_count)
+                def on_success(meta):
                     _kafka_cb.record_success()
-                else:
-                    result['failed'] += max(1, chunk_event_count)
+
+                def on_error(exc):
                     _kafka_cb.record_failure()
-                    logger.error(f"Delivery timeout for batch from {system_id}")
-                    try:
-                        self.producer.flush(timeout=5)
-                    except Exception as flush_exc:
-                        _log_collector_failure("kafka_flush_after_timeout", flush_exc, system_id=system_id)
+                    logger.error(f"Kafka async delivery failed: {exc}")
+
+                future.add_callback(on_success).add_errback(on_error)
+                result['sent'] += max(1, chunk_event_count)
 
             result['success'] = result['failed'] == 0
             structured_log(
