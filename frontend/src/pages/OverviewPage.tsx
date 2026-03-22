@@ -1,4 +1,5 @@
 import { Server, Activity, AlertTriangle, Zap } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import DashboardCard from '../components/shared/DashboardCard';
 import SystemHealthHeatmap from '../components/shared/SystemHealthHeatmap';
 import LiveEventStream from '../components/shared/LiveEventStream';
@@ -16,6 +17,7 @@ import {
 import { useDashboard } from '../context/DashboardContext';
 
 export default function OverviewPage() {
+  const navigate = useNavigate();
   const {
     filteredEvents,
     filteredSystems,
@@ -107,6 +109,7 @@ export default function OverviewPage() {
             {recentCritical.map((e) => (
               <div
                 key={e.event_record_id}
+                onClick={() => navigate(`/events?system=${e.system_id}`)}
                 className={`flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-bg-hover transition-colors cursor-pointer ${
                   e.severity === 'CRITICAL' ? 'severity-border-critical' : 'severity-border-error'
                 }`}

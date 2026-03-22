@@ -23,9 +23,29 @@ export default function Topbar() {
   const [showTimeDropdown, setShowTimeDropdown] = useState(false);
   const [showRefreshDropdown, setShowRefreshDropdown] = useState(false);
   const [showUserDropdown, setShowUserDropdown] = useState(false);
+  const [showAlertsDropdown, setShowAlertsDropdown] = useState(false);
+  const [pipelineStatus, setPipelineStatus] = useState<{ status: string; delay_seconds: number }>({ status: 'OK', delay_seconds: 0 });
   const timeRef = useRef<HTMLDivElement>(null);
   const refreshRef = useRef<HTMLDivElement>(null);
   const userRef = useRef<HTMLDivElement>(null);
+  const notificationRef = useRef<HTMLDivElement>(null);
+
+  const latestAlerts = alerts.slice(0, 10);
+
+  useEffect(() => {
+    const fetchHealth = async () => {
+      try {
+        const res = await fetch('http://localhost:8000/pipeline-health/status');
+        const data = await res.json();
+        setPipelineStatus(data);
+      } catch (e) {
+        setPipelineStatus({ status: 'DOWN', delay_seconds: 999 });
+      }
+    };
+    fetchHealth();
+    const interval = setInterval(fetchHealth, 10000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Get user initials
   const initials = user?.name
@@ -38,6 +58,7 @@ export default function Topbar() {
       if (timeRef.current && !timeRef.current.contains(e.target as Node)) setShowTimeDropdown(false);
       if (refreshRef.current && !refreshRef.current.contains(e.target as Node)) setShowRefreshDropdown(false);
       if (userRef.current && !userRef.current.contains(e.target as Node)) setShowUserDropdown(false);
+      if (notificationRef.current && !notificationRef.current.contains(e.target as Node)) setShowAlertsDropdown(false);
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
@@ -84,9 +105,13 @@ export default function Topbar() {
         <span className="w-px h-4 bg-border" />
 
         {/* Pipeline health */}
-        <div className="flex items-center gap-1.5">
-          <span className="w-2 h-2 rounded-full bg-signal-highlight shadow-[0_0_6px_rgba(34,197,94,0.5)]" />
-          <span className="text-[10px] text-text-muted">Pipeline OK</span>
+        <div className="flex items-center gap-1.5" title={`Lag: ${pipelineStatus.delay_seconds}s`}>
+          <span className={`w-2 h-2 rounded-full ${
+            pipelineStatus.status === 'OK' ? 'bg-signal-highlight shadow-[0_0_6px_rgba(34,197,94,0.5)]' :
+            pipelineStatus.status === 'DEGRADED' ? 'bg-accent-amber shadow-[0_0_6px_rgba(255,214,10,0.5)]' :
+            'bg-accent-red shadow-[0_0_6px_rgba(255,59,48,0.5)]'
+          }`} />
+          <span className="text-[10px] text-text-muted">Pipeline {pipelineStatus.status}</span>
         </div>
       </div>
 
@@ -154,12 +179,36 @@ export default function Topbar() {
         </div>
 
         {/* Notifications */}
-        <button className="relative p-2 rounded-lg text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors">
-          <Bell className="w-4 h-4" />
-          <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-accent-red rounded-full flex items-center justify-center text-[9px] font-bold text-white shadow-[0_0_8px_rgba(255,59,48,0.4)]">
-            {criticals + degraded}
-          </span>
-        </button>
+        <div className="relative" ref={notificationRef}>
+          <button 
+            onClick={() => { setShowAlertsDropdown(!showAlertsDropdown); setShowTimeDropdown(false); setShowRefreshDropdown(false); setShowUserDropdown(false); }}
+            className="relative p-2 rounded-lg text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors"
+          >
+            <Bell className="w-4 h-4" />
+            <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-accent-red rounded-full flex items-center justify-center text-[9px] font-bold text-white shadow-[0_0_8px_rgba(255,59,48,0.4)]">
+              {criticals + degraded}
+            </span>
+          </button>
+          
+          {showAlertsDropdown && (
+            <div className="absolute right-0 top-full mt-1.5 w-80 glass-panel rounded-lg py-2 shadow-xl shadow-black/40 z-50 animate-fade-in max-h-[400px] overflow-y-auto">
+              <h4 className="px-4 py-2 text-xs font-semibold border-b border-border text-text-primary">Recent Alerts</h4>
+              <div className="flex flex-col">
+                {latestAlerts.length > 0 ? latestAlerts.map(a => (
+                  <div key={a.alert_id} className="px-4 py-3 border-b border-border/50 hover:bg-bg-hover text-left flex flex-col gap-1 transition-colors">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-text-primary truncate pr-2">{a.title}</span>
+                      <span className={`text-[9px] uppercase font-bold px-1.5 py-0.5 rounded ${a.severity === 'CRITICAL' ? 'bg-accent-red/20 text-accent-red' : a.severity === 'ERROR' ? 'bg-accent-orange/20 text-accent-orange' : 'bg-accent-amber/20 text-accent-amber'}`}>{a.severity}</span>
+                    </div>
+                    <span className="text-[10px] text-text-muted">{a.hostname} • {new Date(a.triggered_at).toLocaleTimeString()}</span>
+                  </div>
+                )) : (
+                  <div className="px-4 py-4 text-xs text-text-muted text-center">No recent alerts</div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
 
         {/* User Avatar with Dropdown */}
         <div ref={userRef} className="relative">

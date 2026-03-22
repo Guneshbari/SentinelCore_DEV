@@ -21,8 +21,8 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
 
 from fastapi import FastAPI, Request
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
+from pydantic import BaseModel
 import psycopg2
 import psycopg2.pool
 import psycopg2.extras
@@ -494,7 +494,8 @@ def get_alerts() -> List[Dict]:
             SELECT
                 system_id, system_id AS hostname, severity, fault_type,
                 provider_name, diagnostic_context,
-                ingested_at AS event_time, id AS event_record_id
+                ingested_at AS event_time, id AS event_record_id,
+                acknowledged, escalated
             FROM events
             WHERE severity IN ('CRITICAL', 'ERROR', 'WARNING')
             ORDER BY ingested_at DESC
@@ -516,7 +517,9 @@ def get_alerts() -> List[Dict]:
                 ),
                 "description":  desc,
                 "triggered_at": _iso(row.get("event_time")),
-                "acknowledged": False,
+                "acknowledged": bool(row.get("acknowledged")),
+                "escalated":    bool(row.get("escalated")),
+                "status":       "acknowledged" if row.get("acknowledged") else "active",
             })
 
         _log_req("/alerts", (time.time() - t0) * 1000, "ok", len(alerts))
@@ -527,6 +530,79 @@ def get_alerts() -> List[Dict]:
         _log_failure("/alerts", "endpoint", exc)
         _log_req("/alerts", (time.time() - t0) * 1000, "error")
         return []
+
+
+class AlertActionRequest(BaseModel):
+    alert_id: str
+
+@app.post("/alerts/acknowledge")
+def acknowledge_alert(req: AlertActionRequest) -> Dict:
+    t0 = time.time()
+    try:
+        record_id = int(req.alert_id.replace("ALERT-", ""))
+        def _run_ack() -> bool:
+            with _get_db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "UPDATE events SET acknowledged = TRUE, acknowledged_at = NOW() WHERE id = %s",
+                        (record_id,)
+                    )
+                conn.commit()
+            return True
+        result, ok = retry_with_backoff(_run_ack, label="/alerts/acknowledge")
+        success = bool(ok and result)
+        _log_req("/alerts/acknowledge", (time.time() - t0) * 1000, "ok" if success else "error")
+        return {"success": success}
+    except Exception as exc:
+        _log_failure("/alerts/acknowledge", "endpoint", exc)
+        return {"success": False}
+
+@app.post("/alerts/escalate")
+def escalate_alert(req: AlertActionRequest) -> Dict:
+    t0 = time.time()
+    try:
+        record_id = int(req.alert_id.replace("ALERT-", ""))
+        def _run_esc() -> bool:
+            with _get_db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "UPDATE events SET escalated = TRUE, escalated_at = NOW() WHERE id = %s",
+                        (record_id,)
+                    )
+                conn.commit()
+            return True
+        result, ok = retry_with_backoff(_run_esc, label="/alerts/escalate")
+        success = bool(ok and result)
+        _log_req("/alerts/escalate", (time.time() - t0) * 1000, "ok" if success else "error")
+        return {"success": success}
+    except Exception as exc:
+        _log_failure("/alerts/escalate", "endpoint", exc)
+        return {"success": False}
+
+@app.get("/pipeline-health/status")
+def get_pipeline_health_status() -> Dict:
+    t0 = time.time()
+    try:
+        row = _exec_one("SELECT MAX(ingested_at) AS latest FROM events", endpoint="/pipeline-health/status")
+        latest = row.get("latest")
+        
+        delay_seconds = 0
+        status = "OK"
+        
+        if isinstance(latest, datetime):
+            delay_seconds = (datetime.now(timezone.utc) - latest.replace(tzinfo=timezone.utc)).total_seconds()
+            if delay_seconds < 60:
+                status = "OK"
+            elif delay_seconds < 300:
+                status = "DEGRADED"
+            else:
+                status = "DOWN"
+        
+        _log_req("/pipeline-health/status", (time.time() - t0) * 1000, "ok")
+        return {"status": status, "delay_seconds": int(delay_seconds)}
+    except Exception as exc:
+        _log_failure("/pipeline-health/status", "endpoint", exc)
+        return {"status": "DOWN", "delay_seconds": 999}
 
 
 @app.get("/metrics")

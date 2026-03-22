@@ -48,7 +48,7 @@ export default function SystemHealthHeatmap() {
           return (
             <button
               key={s.system_id}
-              onClick={() => navigate(`/events?system=${s.hostname}`)}
+              onClick={() => navigate(`/events?system=${s.system_id}`)}
               className={`${colors.bg} border ${colors.border} ${colors.glow} rounded-lg p-3 text-left transition-all duration-200 hover:scale-[1.03] cursor-pointer`}
             >
               <p className={`text-xs font-bold ${colors.text} truncate`}>{s.hostname}</p>

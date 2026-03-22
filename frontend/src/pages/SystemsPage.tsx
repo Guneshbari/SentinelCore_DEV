@@ -52,7 +52,7 @@ export default function SystemsPage() {
           return (
             <div
               key={system.system_id}
-              onClick={() => navigate(`/events?system=${system.hostname}`)}
+              onClick={() => navigate(`/events?system=${system.system_id}`)}
               className="glass-panel panel-glow hover-lift rounded-xl p-5 animate-fade-in cursor-pointer group"
             >
               {/* Name and Status */}

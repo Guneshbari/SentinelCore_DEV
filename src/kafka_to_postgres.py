@@ -298,6 +298,11 @@ def setup_database(conn: Any) -> None:
             ("normalized_message", "TEXT", "''"),
             ("fault_subtype", "VARCHAR(80)", "''"),
             ("confidence_score", "NUMERIC(3,2)", "0.20"),
+            ("acknowledged", "BOOLEAN", "FALSE"),
+            ("acknowledged_at", "TIMESTAMP WITH TIME ZONE", "NULL"),
+            ("escalated", "BOOLEAN", "FALSE"),
+            ("escalated_at", "TIMESTAMP WITH TIME ZONE", "NULL"),
+            ("assigned_to", "VARCHAR(100)", "NULL"),
         ]:
             cur.execute(
                 f"""

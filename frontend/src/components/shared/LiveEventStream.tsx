@@ -1,6 +1,7 @@
 import { useState, useMemo, useRef } from 'react';
 import { Radio } from 'lucide-react';
 import SeverityBadge from './SeverityBadge';
+import EventDetailInspector from './EventDetailInspector';
 import { formatTimestamp } from '../../data/mockData';
 import { useDashboard } from '../../context/DashboardContext';
 import type { TelemetryEvent } from '../../types/telemetry';
@@ -17,6 +18,7 @@ export default function LiveEventStream() {
   );
   const [isLive, setIsLive] = useState(true);
   const [pausedEvents, setPausedEvents] = useState<TelemetryEvent[]>([]);
+  const [selectedEvent, setSelectedEvent] = useState<TelemetryEvent | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const streamEvents = isLive ? sortedRecentEvents : pausedEvents;
 
@@ -61,6 +63,7 @@ export default function LiveEventStream() {
         {streamEvents.map((e, i) => (
           <div
             key={`${e.event_record_id}-${i}`}
+            onClick={() => setSelectedEvent(e)}
             className={`flex items-center gap-3 px-4 py-2 border-b border-border/30 text-xs hover:bg-bg-hover transition-colors cursor-pointer ${
               i === 0 ? 'animate-slide-in bg-bg-hover/50' : ''
             }`}
@@ -77,6 +80,17 @@ export default function LiveEventStream() {
           </div>
         ))}
       </div>
+
+      {/* Event Detail Modal Overlay */}
+      {selectedEvent && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in" onClick={(e) => {
+          if (e.target === e.currentTarget) setSelectedEvent(null);
+        }}>
+          <div className="w-full max-w-3xl max-h-[90vh] overflow-y-auto bg-bg-primary rounded-xl shadow-[0_0_30px_rgba(0,0,0,0.8)] border border-border">
+            <EventDetailInspector event={selectedEvent} onClose={() => setSelectedEvent(null)} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
