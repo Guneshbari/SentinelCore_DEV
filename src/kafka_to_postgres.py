@@ -62,6 +62,7 @@ from sentinel_utils import (
     make_db_connection,
     retry_with_backoff,
     structured_log,
+    timeout_wrapper,
 )
 
 logging.basicConfig(
@@ -849,7 +850,13 @@ def run_consumer() -> None:
                 if RETENTION_CLEANUP_ENABLED and time.time() >= next_cleanup_at:
                     try:
                         conn = _get_healthy_conn(conn)
-                        cleanup_expired_events(conn)
+                        def _do_clean():
+                            return cleanup_expired_events(conn)
+                        def _do_clean_timeout():
+                            res, t_ok = timeout_wrapper(_do_clean, timeout_secs=60.0, label="cleanup")
+                            if not t_ok: raise TimeoutError("Cleanup timed out")
+                            return res
+                        retry_with_backoff(_do_clean_timeout, max_attempts=3, label="cleanup_retry")
                     except Exception as exc:
                         structured_log(
                             "kafka_to_postgres",
@@ -900,7 +907,15 @@ def run_consumer() -> None:
                         time.sleep(CONSUMER_DB_BACKOFF_SECS)
                         break
 
-                    ok = process_message(conn, payload)
+                    def _run_process():
+                        return process_message(conn, payload)
+                    def _run_timeout():
+                        res, t_ok = timeout_wrapper(_run_process, timeout_secs=15.0, label="process_message")
+                        if not t_ok: raise TimeoutError("DB transaction timed out")
+                        return res
+
+                    res, r_ok = retry_with_backoff(_run_timeout, max_attempts=3, label=f"process_message_retry/{system_id}")
+                    ok = bool(r_ok and res)
                     latency_ms = round((time.time() - message_started_at) * 1000, 2)
                     batch_messages += 1
                     batch_events += event_count
@@ -979,7 +994,13 @@ def run_consumer() -> None:
             if RETENTION_CLEANUP_ENABLED and now >= next_cleanup_at:
                 try:
                     conn = _get_healthy_conn(conn)
-                    cleanup_expired_events(conn)
+                    def _do_clean():
+                        return cleanup_expired_events(conn)
+                    def _do_clean_timeout():
+                        res, t_ok = timeout_wrapper(_do_clean, timeout_secs=60.0, label="cleanup")
+                        if not t_ok: raise TimeoutError("Cleanup timed out")
+                        return res
+                    retry_with_backoff(_do_clean_timeout, max_attempts=3, label="cleanup_retry")
                 except Exception as exc:
                     structured_log(
                         "kafka_to_postgres",
