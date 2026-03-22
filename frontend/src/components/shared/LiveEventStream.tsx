@@ -33,7 +33,7 @@ export default function LiveEventStream() {
   }
 
   return (
-    <div className="glass-panel panel-glow rounded-xl overflow-hidden animate-fade-in">
+    <div className="glass-panel-solid rounded-md border border-border flex flex-col h-full bg-bg-surface overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-border">
         <div className="flex items-center gap-2">
@@ -41,7 +41,7 @@ export default function LiveEventStream() {
           <h3 className="text-xs font-semibold text-text-primary uppercase tracking-wider">Live Event Stream</h3>
           {isLive && (
             <span className="flex items-center gap-1 text-[10px] text-signal-highlight font-medium">
-              <span className="w-1.5 h-1.5 rounded-full bg-signal-highlight animate-pulse-glow" />
+              <span className="w-1.5 h-1.5 rounded-full bg-signal-highlight" />
               LIVE
             </span>
           )}
@@ -59,13 +59,13 @@ export default function LiveEventStream() {
       </div>
 
       {/* Stream */}
-      <div ref={containerRef} className="max-h-[280px] overflow-y-auto">
+      <div ref={containerRef} className="max-h-[220px] overflow-y-auto">
         {streamEvents.map((e, i) => (
           <div
             key={`${e.event_record_id}-${i}`}
             onClick={() => setSelectedEvent(e)}
-            className={`flex items-center gap-3 px-4 py-2 border-b border-border/30 text-xs hover:bg-bg-hover transition-colors cursor-pointer ${
-              i === 0 ? 'animate-slide-in bg-bg-hover/50' : ''
+            className={`flex items-center gap-3 px-4 py-1 border-b border-border/30 text-[11px] hover:bg-bg-hover transition-colors cursor-pointer ${
+              i === 0 ? 'bg-bg-hover/50' : ''
             }`}
           >
             <span className="text-text-muted font-mono whitespace-nowrap w-[110px] shrink-0">

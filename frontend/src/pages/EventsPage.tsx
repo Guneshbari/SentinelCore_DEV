@@ -1,32 +1,32 @@
 import { useState, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { ArrowUpDown } from 'lucide-react';
+import { ArrowUpDown, AlertCircle } from 'lucide-react';
 import SeverityBadge from '../components/shared/SeverityBadge';
 import LiveEventStream from '../components/shared/LiveEventStream';
 import EventDetailInspector from '../components/shared/EventDetailInspector';
 import { formatTimestamp } from '../data/mockData';
 import { useDashboard } from '../context/DashboardContext';
-import type { Severity, TelemetryEvent } from '../types/telemetry';
+import type { TelemetryEvent, Severity } from '../types/telemetry';
 
-const PAGE_SIZE = 12;
+const PAGE_SIZE = 50;
+const severityOrder: Record<Severity, number> = { CRITICAL: 0, ERROR: 1, WARNING: 2, INFO: 3 };
 type SortKey = 'event_time' | 'severity' | 'system_id' | 'fault_type';
 type SortDir = 'asc' | 'desc';
-const severityOrder: Record<Severity, number> = { CRITICAL: 0, ERROR: 1, WARNING: 2, INFO: 3 };
 
 interface SortHeaderProps {
-  readonly label: string;
-  readonly sortId: SortKey;
-  readonly activeSortKey: SortKey;
-  readonly onToggleSort: (sortKey: SortKey) => void;
+  label: string;
+  sortId: SortKey;
+  activeSortKey: SortKey;
+  onToggleSort: (sortKey: SortKey) => void;
 }
 
 function SortHeader({ label, sortId, activeSortKey, onToggleSort }: SortHeaderProps) {
   return (
     <th
       onClick={() => onToggleSort(sortId)}
-      className="text-left text-[10px] font-semibold text-text-muted uppercase tracking-wider py-3 px-3 cursor-pointer hover:text-text-secondary transition-colors select-none"
+      className="text-left text-[10px] bg-bg-surface sticky top-0 z-10 font-semibold text-text-muted uppercase tracking-wider py-2.5 px-3 cursor-pointer hover:text-text-primary transition-colors select-none"
     >
-      <span className="inline-flex items-center gap-1">
+      <span className="inline-flex items-center gap-1.5">
         {label}
         <ArrowUpDown className={`w-3 h-3 ${activeSortKey === sortId ? 'text-signal-primary' : 'opacity-30'}`} />
       </span>
@@ -56,7 +56,7 @@ export default function EventsPage() {
       else if (sortKey === 'fault_type') cmp = a.fault_type.localeCompare(b.fault_type);
       return sortDir === 'asc' ? cmp : -cmp;
     });
-  }, [filteredEvents, sortKey, sortDir]);
+  }, [filteredEvents, systemFilter, sortKey, sortDir]);
 
   const paginated = sorted.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
   const totalPages = Math.ceil(sorted.length / PAGE_SIZE);
@@ -67,92 +67,104 @@ export default function EventsPage() {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="flex flex-col h-[calc(100vh-100px)] gap-4">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between shrink-0">
         <div>
-          <h2 className="text-lg font-bold text-text-primary">
-            {systemFilter ? `Event Explorer: ${systemFilter}` : 'Event Explorer'}
+          <h2 className="text-lg font-bold text-text-primary tracking-tight">
+            {systemFilter ? `Event Console: ${systemFilter}` : 'Event Console'}
           </h2>
-          <p className="text-xs text-text-muted mt-0.5">Investigate recent telemetry events</p>
+          <p className="text-[11px] text-text-muted mt-0.5">Raw telemetry inspection and correlation</p>
         </div>
-        <span className="text-xs text-text-muted glass-panel rounded-lg px-3 py-1.5">
-          {sorted.length} of {filteredEvents.length} events matching filters
-        </span>
+        <div className="flex items-center gap-3">
+          <span className="text-[11px] text-text-secondary">
+            {sorted.length.toLocaleString()} matching events
+          </span>
+        </div>
       </div>
 
-      {/* ── Top: Live Event Stream ── */}
-      <LiveEventStream />
-
-      {/* ── Bottom: Table + Inspector ── */}
-      <div className={`grid gap-4 ${selectedEvent ? 'grid-cols-1 lg:grid-cols-5' : 'grid-cols-1'}`}>
-        {/* Events Table */}
-        <div className={`${selectedEvent ? 'lg:col-span-3' : ''} glass-panel panel-glow rounded-xl overflow-hidden animate-fade-in`}>
-          <div className="overflow-x-auto">
+      <div className="flex flex-1 min-h-0 gap-4">
+        {/* Main Event Table */}
+        <div className="flex-1 flex flex-col min-w-0 glass-panel-solid border border-border rounded-md overflow-hidden">
+          <div className="flex-1 overflow-y-auto">
             <table className="w-full text-xs">
               <thead>
-                <tr className="border-b border-border">
+                <tr className="border-b border-border/80">
                   <SortHeader label="Time" sortId="event_time" activeSortKey={sortKey} onToggleSort={toggleSort} />
-                  <SortHeader label="System" sortId="system_id" activeSortKey={sortKey} onToggleSort={toggleSort} />
-                  <th className="text-left text-[10px] font-semibold text-text-muted uppercase tracking-wider py-3 px-3">Provider</th>
-                  <th className="text-left text-[10px] font-semibold text-text-muted uppercase tracking-wider py-3 px-3">ID</th>
                   <SortHeader label="Severity" sortId="severity" activeSortKey={sortKey} onToggleSort={toggleSort} />
+                  <SortHeader label="System" sortId="system_id" activeSortKey={sortKey} onToggleSort={toggleSort} />
+                  <th className="text-left text-[10px] bg-bg-surface sticky top-0 z-10 font-semibold text-text-muted uppercase tracking-wider py-2.5 px-3">Provider</th>
                   <SortHeader label="Fault Type" sortId="fault_type" activeSortKey={sortKey} onToggleSort={toggleSort} />
-                  <th className="text-left text-[10px] font-semibold text-text-muted uppercase tracking-wider py-3 px-3">Message</th>
+                  <th className="text-left text-[10px] bg-bg-surface sticky top-0 z-10 font-semibold text-text-muted uppercase tracking-wider py-2.5 px-3">Message</th>
                 </tr>
               </thead>
-              <tbody>
-                {paginated.map((e) => (
-                  <tr
-                    key={e.event_record_id}
-                    onClick={() => setSelectedEvent(e)}
-                    className={`border-b border-border/30 transition-colors cursor-pointer ${
-                      selectedEvent?.event_record_id === e.event_record_id
-                        ? 'bg-signal-primary/10'
-                        : 'hover:bg-bg-hover'
-                    }`}
-                  >
-                    <td className="py-2.5 px-3 text-text-muted whitespace-nowrap font-mono">{formatTimestamp(e.event_time)}</td>
-                    <td className="py-2.5 px-3">
-                      <span className="font-mono text-signal-primary">{e.hostname}</span>
+              <tbody className="divide-y divide-border/40">
+                {paginated.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="py-12 text-center text-text-muted">
+                      <div className="flex justify-center mb-2"><AlertCircle className="w-6 h-6 opacity-30" /></div>
+                      <p className="text-xs">No events matching the criteria</p>
                     </td>
-                    <td className="py-2.5 px-3 text-text-secondary max-w-[150px] truncate">{e.provider_name}</td>
-                    <td className="py-2.5 px-3 font-mono text-text-muted">{e.event_id}</td>
-                    <td className="py-2.5 px-3"><SeverityBadge severity={e.severity} /></td>
-                    <td className="py-2.5 px-3 text-text-secondary">{e.fault_type}</td>
-                    <td className="py-2.5 px-3 text-text-muted max-w-[240px] truncate">{e.fault_description || e.fault_type}</td>
                   </tr>
-                ))}
+                ) : (
+                  paginated.map((e) => (
+                    <tr
+                      key={e.event_record_id}
+                      onClick={() => setSelectedEvent(e)}
+                      className={`cursor-pointer transition-colors ${
+                        selectedEvent?.event_record_id === e.event_record_id ? 'bg-signal-primary/10' : 'hover:bg-bg-hover'
+                      } ${e.severity === 'CRITICAL' && selectedEvent?.event_record_id !== e.event_record_id ? 'bg-accent-red/5' : ''}`}
+                    >
+                      <td className="py-2 px-3 text-[11px] text-text-secondary whitespace-nowrap">{formatTimestamp(e.event_time)}</td>
+                      <td className="py-2 px-3"><SeverityBadge severity={e.severity} /></td>
+                      <td className="py-2 px-3">
+                        <span className="font-semibold text-text-primary">{e.hostname}</span>
+                      </td>
+                      <td className="py-2 px-3 text-[11px] text-text-secondary truncate max-w-[120px]">{e.provider_name}</td>
+                      <td className="py-2 px-3 text-[11px] font-semibold text-text-primary">{e.fault_type}</td>
+                      <td className="py-2 px-3 text-[11px] text-text-muted truncate max-w-[200px]">{e.fault_description || e.fault_type}</td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
 
-          {/* Pagination */}
-          <div className="flex items-center justify-between px-3 py-2.5 border-t border-border">
-            <p className="text-[11px] text-text-muted">
-              {sorted.length > 0 ? `${page * PAGE_SIZE + 1}–${Math.min((page + 1) * PAGE_SIZE, sorted.length)} of ${sorted.length}` : 'No events'}
-            </p>
-            <div className="flex gap-1.5">
+          {/* Pagination Strip */}
+          <div className="flex items-center justify-between px-3 py-2 bg-bg-surface border-t border-border/80 shrink-0">
+            <span className="text-[10px] text-text-muted">
+              {sorted.length > 0 ? `Showing ${page * PAGE_SIZE + 1}–${Math.min((page + 1) * PAGE_SIZE, sorted.length)} of ${sorted.length}` : ''}
+            </span>
+            <div className="flex gap-1 border border-border rounded-md overflow-hidden">
               <button
                 onClick={() => setPage((p) => Math.max(0, p - 1))}
                 disabled={page === 0}
-                className="px-2.5 py-1 text-[11px] rounded-md border border-border text-text-secondary hover:bg-bg-hover disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-              >Prev</button>
+                className="px-3 py-1 bg-bg-primary hover:bg-bg-hover text-[10px] font-semibold text-text-secondary border-r border-border disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              >
+                Previous
+              </button>
               <button
                 onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
                 disabled={page >= totalPages - 1}
-                className="px-2.5 py-1 text-[11px] rounded-md border border-border text-text-secondary hover:bg-bg-hover disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-              >Next</button>
+                className="px-3 py-1 bg-bg-primary hover:bg-bg-hover text-[10px] font-semibold text-text-secondary disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              >
+                Next
+              </button>
             </div>
           </div>
         </div>
 
-        {/* Event Detail Inspector */}
+        {/* Right Detail Pane */}
         {selectedEvent && (
-          <div className="lg:col-span-2">
+          <div className="w-[480px] shrink-0">
             <EventDetailInspector event={selectedEvent} onClose={() => setSelectedEvent(null)} />
           </div>
         )}
+      </div>
+
+      {/* Optional Live Event Stream at bottom if explicitly enabled or standard log view */}
+      <div className="shrink-0 max-h-[160px]">
+         <LiveEventStream />
       </div>
     </div>
   );

@@ -11,10 +11,10 @@ import { useDashboard } from '../../context/DashboardContext';
 import type { Severity } from '../../types/telemetry';
 
 const COLORS: Record<Severity, string> = {
-  CRITICAL: '#ff3b30',
-  ERROR: '#ff7a18',
-  WARNING: '#ffd60a',
-  INFO: '#00c2ff',
+  CRITICAL: '#ef4444',
+  ERROR: '#f97316',
+  WARNING: '#f59e0b',
+  INFO: '#3b82f6',
 };
 
 export default function SeverityChart() {
@@ -25,9 +25,13 @@ export default function SeverityChart() {
     : 'Breakdown from the recent event sample';
 
   return (
-    <div className="glass-panel panel-glow hover-lift rounded-xl p-5 animate-fade-in">
-      <h3 className="text-xs font-semibold text-text-primary uppercase tracking-wider mb-1">Severity Distribution</h3>
-      <p className="text-[10px] text-text-muted mb-4">{subtitle}</p>
+    <div className="glass-panel-solid rounded-md border border-border p-4 bg-bg-surface">
+      <div className="flex items-center justify-between mb-3">
+        <div>
+          <h3 className="text-[11px] font-bold text-text-primary uppercase tracking-wider">Severity Distribution</h3>
+          <p className="text-[10px] text-text-muted mt-0.5">{subtitle}</p>
+        </div>
+      </div>
       <ResponsiveContainer width="100%" height={240}>
         <PieChart>
           <Pie
@@ -45,7 +49,7 @@ export default function SeverityChart() {
               <Cell key={entry.severity} fill={COLORS[entry.severity]} />
             ))}
           </Pie>
-          <Tooltip contentStyle={{ backgroundColor: '#05080f', border: '1px solid #1a2230', borderRadius: 8, fontSize: 11, color: '#e6edf3' }} />
+          <Tooltip contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: 4, fontSize: 10, color: '#f8fafc' }} />
           <Legend verticalAlign="bottom" height={36} formatter={(value: string) => <span className="text-[10px] text-text-secondary">{value}</span>} />
         </PieChart>
       </ResponsiveContainer>
