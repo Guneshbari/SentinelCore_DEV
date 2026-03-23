@@ -15,13 +15,14 @@ import json
 import logging
 import threading
 import time
+import uuid
 from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, JSONResponse
 from pydantic import BaseModel
 import psycopg2
 import psycopg2.pool
@@ -71,7 +72,7 @@ def _log_req(endpoint: str, latency_ms: float, status: str, count: int = 0) -> N
         "api_server",
         {
             "endpoint":   endpoint,
-            "latency_ms": round(latency_ms, 2),
+            "latency_ms": float(f"{float(latency_ms):.2f}"),
             "status":     status,
             "count":      count,
         },
@@ -139,6 +140,39 @@ async def lifespan(app: FastAPI):
                 "or install firebase-admin.  Auth is DISABLED."
             )
     _log_security_posture()
+
+    # Ensure audit_logs table exists
+    try:
+        with _get_db() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS audit_logs (
+                        id SERIAL PRIMARY KEY,
+                        user_id VARCHAR(100),
+                        action VARCHAR(100),
+                        resource_id VARCHAR(100),
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    );
+                    CREATE TABLE IF NOT EXISTS systems (
+                        system_id VARCHAR(100) PRIMARY KEY,
+                        hostname VARCHAR(255),
+                        ip_address VARCHAR(100),
+                        agent_key VARCHAR(255),
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    );
+                    CREATE TABLE IF NOT EXISTS alert_rules (
+                        id SERIAL PRIMARY KEY,
+                        rule_name VARCHAR(255),
+                        condition TEXT,
+                        severity VARCHAR(20),
+                        threshold INT
+                    );
+                """)
+            conn.commit()
+    except Exception as exc:
+        logger.error("[startup] Failed to create audit_logs table: %s", exc)
+
     yield
     # Shutdown
     if _pool:
@@ -213,11 +247,11 @@ class TimedResponseCache:
                         now = time.time()
                         expired = [k for k, v in self._entries.items() if v[0] <= now]
                         for k in expired:
-                            del self._entries[k]
+                            self._entries.pop(k, None)
                         if len(self._entries) >= self._max_size:
                             # Evict key with earliest expiry
                             oldest = min(self._entries.keys(), key=lambda k: self._entries[k][0])
-                            del self._entries[oldest]
+                            self._entries.pop(oldest, None)
 
                     self._entries[key] = (time.time() + ttl_seconds, value)
                     self._inflight.pop(key, None)
@@ -290,7 +324,8 @@ async def _security_middleware(request: Request, call_next: Callable[..., Any]) 
             return PlainTextResponse("Service unavailable: auth backend not ready", status_code=503)
 
         try:
-            firebase_auth.verify_id_token(id_token, check_revoked=True)
+            decoded_token = firebase_auth.verify_id_token(id_token, check_revoked=True)
+            request.state.uid = decoded_token.get("uid", "unknown")
         except firebase_auth.RevokedIdTokenError:
             _log_failure(request.url.path, "auth", "revoked_token")
             return PlainTextResponse("Unauthorized: token revoked", status_code=401)
@@ -317,18 +352,19 @@ def _add_security_headers(response: Any) -> None:
 # QUERY HELPERS
 # ============================================================================
 
-def _exec_query(sql: str, params: Any = None, endpoint: str = "query") -> List[Dict]:
+def _exec_query(sql: str, params: Any = None, endpoint: str = "query") -> List[Dict[str, Any]]:
     """
     Execute a SELECT query with timeout + retry protection.
     Returns a list of row dicts on success, [] on any failure.
     """
-    def _run() -> List[Dict]:
+    def _run() -> List[Dict[str, Any]]:
         with _get_db() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                 cur.execute(sql, params)
                 return [dict(r) for r in cur.fetchall()]
+        return []
 
-    def _with_retry() -> List[Dict]:
+    def _with_retry() -> List[Dict[str, Any]]:
         result, ok = retry_with_backoff(_run, label=endpoint)
         if not ok:
             _log_failure(endpoint, "query_retry", "retries exhausted")
@@ -344,19 +380,20 @@ def _exec_query(sql: str, params: Any = None, endpoint: str = "query") -> List[D
     return result if (ok and result is not None) else []
 
 
-def _exec_one(sql: str, params: Any = None, endpoint: str = "query") -> Dict:
+def _exec_one(sql: str, params: Any = None, endpoint: str = "query") -> Dict[str, Any]:
     """
     Execute a SELECT query expecting one row.
     Returns a dict on success, {} on failure.
     """
-    def _run() -> Dict:
+    def _run() -> Dict[str, Any]:
         with _get_db() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                 cur.execute(sql, params)
                 row = cur.fetchone()
                 return dict(row) if row else {}
+        return {}
 
-    def _with_retry() -> Dict:
+    def _with_retry() -> Dict[str, Any]:
         result, ok = retry_with_backoff(_run, label=endpoint)
         if not ok:
             _log_failure(endpoint, "query_retry", "retries exhausted")
@@ -449,20 +486,52 @@ def _log_security_posture() -> None:
 # ============================================================================
 
 @app.get("/events")
-def get_events(limit: int = 100, include_raw_xml: bool = False) -> List[Dict]:
+def get_events(
+    limit: int = 100, 
+    include_raw_xml: bool = False,
+    system_id: Optional[str] = None,
+    severity: Optional[str] = None,
+    fault_type: Optional[str] = None,
+    search: Optional[str] = None
+) -> List[Dict]:
     t0 = time.time()
     try:
         limit = _bounded_limit(limit)
-        rows = _exec_query("""
+        
+        conditions = []
+        params: List[Any] = []
+        if system_id:
+            conditions.append(pgsql.SQL("system_id = %s"))
+            params.append(system_id)
+        if severity:
+            conditions.append(pgsql.SQL("severity = %s"))
+            params.append(severity)
+        if fault_type:
+            conditions.append(pgsql.SQL("fault_type = %s"))
+            params.append(fault_type)
+        if search:
+            search_term = f"%{search}%"
+            conditions.append(pgsql.SQL("(fault_type ILIKE %s OR system_id ILIKE %s OR provider_name ILIKE %s OR fault_description ILIKE %s)"))
+            params.extend([search_term, search_term, search_term, search_term])
+            
+        where_clause = pgsql.SQL("")
+        if conditions:
+            where_clause = pgsql.SQL("WHERE ") + pgsql.SQL(" AND ").join(conditions)
+
+        query = pgsql.SQL("""
             SELECT id, system_id, fault_type, severity, provider_name, event_id,
                    cpu_usage_percent, memory_usage_percent, disk_free_percent,
                    event_hash, diagnostic_context, raw_xml, ingested_at,
                    event_message, parsed_message, normalized_message,
                    fault_subtype, confidence_score
             FROM events
+            {where_clause}
             ORDER BY ingested_at DESC
             LIMIT %s
-        """, (limit,), endpoint="/events")
+        """).format(where_clause=where_clause)
+        params.append(limit)
+
+        rows = _exec_query(query, tuple(params), endpoint="/events")
 
         for row in rows:
             row["cpu_usage_percent"]    = _f(row.get("cpu_usage_percent"))
@@ -618,11 +687,56 @@ def get_alerts() -> List[Dict]:
         return []
 
 
+@app.get("/alerts/recent")
+def get_recent_alerts() -> List[Dict]:
+    t0 = time.time()
+    try:
+        rows = _exec_query("""
+            SELECT
+                system_id, system_id AS hostname, severity, fault_type,
+                provider_name, diagnostic_context,
+                ingested_at AS event_time, id AS event_record_id,
+                acknowledged, escalated
+            FROM events
+            WHERE severity IN ('CRITICAL', 'ERROR', 'WARNING') AND acknowledged = FALSE
+            ORDER BY ingested_at DESC
+            LIMIT 10
+        """, endpoint="/alerts/recent")
+
+        alerts: List[Dict] = []
+        for i, row in enumerate(rows):
+            _, desc = _parse_diag(row.get("diagnostic_context"))
+            alerts.append({
+                "alert_id":     f"ALERT-{row.get('event_record_id', i)}",
+                "system_id":    row["system_id"],
+                "hostname":     row.get("hostname", ""),
+                "severity":     row["severity"],
+                "rule":         f"{row.get('fault_type', 'Unknown')} Detection",
+                "title":        (
+                    f"{row['severity']}: {row.get('fault_type', 'Unknown')}"
+                    f" on {row.get('hostname', 'Unknown')}"
+                ),
+                "description":  desc,
+                "triggered_at": _iso(row.get("event_time")),
+                "acknowledged": bool(row.get("acknowledged")),
+                "escalated":    bool(row.get("escalated")),
+                "status":       "active",
+            })
+
+        _log_req("/alerts/recent", (time.time() - t0) * 1000, "ok", len(alerts))
+        return alerts
+
+    except Exception as exc:
+        logger.error("/alerts/recent error: %s", exc)
+        _log_failure("/alerts/recent", "endpoint", exc)
+        return []
+
+
 class AlertActionRequest(BaseModel):
     alert_id: str
 
 @app.post("/alerts/acknowledge")
-def acknowledge_alert(req: AlertActionRequest) -> Dict:
+def acknowledge_alert(req: AlertActionRequest, request: Request) -> Dict:
     t0 = time.time()
     try:
         record_id = int(req.alert_id.replace("ALERT-", ""))
@@ -632,6 +746,11 @@ def acknowledge_alert(req: AlertActionRequest) -> Dict:
                     cur.execute(
                         "UPDATE events SET acknowledged = TRUE, acknowledged_at = NOW() WHERE id = %s",
                         (record_id,)
+                    )
+                    user_id = getattr(request.state, "uid", "anonymous")
+                    cur.execute(
+                        "INSERT INTO audit_logs (user_id, action, resource_id) VALUES (%s, %s, %s)",
+                        (user_id, "acknowledge_alert", str(record_id))
                     )
                 conn.commit()
             return True
@@ -644,7 +763,7 @@ def acknowledge_alert(req: AlertActionRequest) -> Dict:
         return {"success": False}
 
 @app.post("/alerts/escalate")
-def escalate_alert(req: AlertActionRequest) -> Dict:
+def escalate_alert(req: AlertActionRequest, request: Request) -> Dict:
     t0 = time.time()
     try:
         record_id = int(req.alert_id.replace("ALERT-", ""))
@@ -655,6 +774,11 @@ def escalate_alert(req: AlertActionRequest) -> Dict:
                         "UPDATE events SET escalated = TRUE, escalated_at = NOW() WHERE id = %s",
                         (record_id,)
                     )
+                    user_id = getattr(request.state, "uid", "anonymous")
+                    cur.execute(
+                        "INSERT INTO audit_logs (user_id, action, resource_id) VALUES (%s, %s, %s)",
+                        (user_id, "escalate_alert", str(record_id))
+                    )
                 conn.commit()
             return True
         result, ok = retry_with_backoff(_run_esc, label="/alerts/escalate")
@@ -664,6 +788,103 @@ def escalate_alert(req: AlertActionRequest) -> Dict:
     except Exception as exc:
         _log_failure("/alerts/escalate", "endpoint", exc)
         return {"success": False}
+
+
+class AlertRuleRequest(BaseModel):
+    rule_name: str
+    condition: str
+    severity: str
+    threshold: int
+
+@app.post("/alerts/rules")
+def create_alert_rule(req: AlertRuleRequest, request: Request) -> Dict:
+    t0 = time.time()
+    try:
+        def _run_rule_insert() -> bool:
+            with _get_db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "INSERT INTO alert_rules (rule_name, condition, severity, threshold) VALUES (%s, %s, %s, %s)",
+                        (req.rule_name, req.condition, req.severity, req.threshold)
+                    )
+                    user_id = getattr(request.state, "uid", "anonymous")
+                    cur.execute(
+                        "INSERT INTO audit_logs (user_id, action, resource_id) VALUES (%s, %s, %s)",
+                        (user_id, "create_alert_rule", req.rule_name)
+                    )
+                conn.commit()
+            return True
+        result, ok = retry_with_backoff(_run_rule_insert, label="/alerts/rules")
+        success = bool(ok and result)
+        _log_req("/alerts/rules", (time.time() - t0) * 1000, "ok" if success else "error")
+        return {"success": success}
+    except Exception as exc:
+        _log_failure("/alerts/rules", "endpoint", exc)
+        return {"success": False}
+
+
+class SystemRegisterRequest(BaseModel):
+    hostname: str
+    ip_address: str
+    agent_key: str
+
+@app.post("/systems/register")
+def register_system(req: SystemRegisterRequest, request: Request) -> Dict:
+    t0 = time.time()
+    try:
+        system_id = str(uuid.uuid4())
+        def _run_sys_insert() -> bool:
+            with _get_db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "INSERT INTO systems (system_id, hostname, ip_address, agent_key) VALUES (%s, %s, %s, %s)",
+                        (system_id, req.hostname, req.ip_address, req.agent_key)
+                    )
+                    user_id = getattr(request.state, "uid", "anonymous")
+                    cur.execute(
+                        "INSERT INTO audit_logs (user_id, action, resource_id) VALUES (%s, %s, %s)",
+                        (user_id, "register_system", req.hostname)
+                    )
+                conn.commit()
+            return True
+        result, ok = retry_with_backoff(_run_sys_insert, label="/systems/register")
+        success = bool(ok and result)
+        _log_req("/systems/register", (time.time() - t0) * 1000, "ok" if success else "error")
+        return {"success": success, "system_id": system_id if success else None}
+    except Exception as exc:
+        _log_failure("/systems/register", "endpoint", exc)
+        return {"success": False}
+
+
+class SystemCommandRequest(BaseModel):
+    system_id: str
+    command: str
+
+@app.post("/systems/command")
+def system_command(req: SystemCommandRequest, request: Request) -> Dict:
+    t0 = time.time()
+    try:
+        def _run_audit() -> bool:
+            with _get_db() as conn:
+                with conn.cursor() as cur:
+                    user_id = getattr(request.state, "uid", "anonymous")
+                    cur.execute(
+                        "INSERT INTO audit_logs (user_id, action, resource_id) VALUES (%s, %s, %s)",
+                        (user_id, f"system_cmd: {req.command}", req.system_id)
+                    )
+                conn.commit()
+            return True
+        retry_with_backoff(_run_audit, label="/systems/command")
+        
+        # Mock execution response
+        output = f"[SENTINEL-CMD] Executing `{req.command}` on node {req.system_id}...\n"
+        output += f"[SENTINEL-CMD] Operation completed successfully at {datetime.now(timezone.utc).isoformat()}."
+        
+        _log_req("/systems/command", (time.time() - t0) * 1000, "ok")
+        return {"success": True, "output": output}
+    except Exception as exc:
+        _log_failure("/systems/command", "endpoint", exc)
+        return {"success": False, "output": str(exc)}
 
 @app.get("/pipeline-health/status")
 def get_pipeline_health_status() -> Dict:
@@ -692,12 +913,19 @@ def get_pipeline_health_status() -> Dict:
 
 
 @app.get("/metrics")
-def get_metrics() -> List[Dict]:
+def get_metrics(start_time: Optional[str] = None, end_time: Optional[str] = None) -> List[Dict]:
     """Time-bucketed metric points. Falls back to feature_snapshots if no recent events."""
     t0 = time.time()
     try:
         def load_metrics() -> List[Dict]:
-            rows = _exec_query("""
+            params = []
+            if start_time and end_time:
+                time_filter = pgsql.SQL("WHERE ingested_at >= %s AND ingested_at <= %s")
+                params.extend([start_time, end_time])
+            else:
+                time_filter = pgsql.SQL("WHERE ingested_at > NOW() - INTERVAL '24 hours'")
+            
+            query = pgsql.SQL("""
                 SELECT
                     date_trunc('hour', ingested_at)                             AS bucket,
                     COUNT(*)                                                     AS event_count,
@@ -709,10 +937,12 @@ def get_metrics() -> List[Dict]:
                     ROUND(AVG(memory_usage_percent)::numeric, 1)                AS avg_memory,
                     ROUND(AVG(disk_free_percent)::numeric, 1)                   AS avg_disk_free
                 FROM events
-                WHERE ingested_at > NOW() - INTERVAL '24 hours'
+                {time_filter}
                 GROUP BY bucket
                 ORDER BY bucket ASC
-            """, endpoint="/metrics")
+            """).format(time_filter=time_filter)
+
+            rows = _exec_query(query, tuple(params) if params else None, endpoint="/metrics")
 
             if not rows:
                 rows = _exec_query("""
@@ -745,7 +975,7 @@ def get_metrics() -> List[Dict]:
             } for r in rows]
 
         metrics = _response_cache.get_or_set(
-            _cache_key("/metrics"),
+            _cache_key("/metrics", start_time=start_time, end_time=end_time),
             API_CACHE_TTL_SECONDS,
             load_metrics,
         )
@@ -803,7 +1033,7 @@ def get_dashboard_metrics(window_minutes: Optional[int] = None) -> Dict:
             }
 
         result = _response_cache.get_or_set(
-            _cache_key("/dashboard-metrics", window_minutes),
+            _cache_key("/dashboard-metrics", window_minutes=window_minutes),
             API_CACHE_TTL_SECONDS,
             load_dashboard_metrics,
         )
@@ -942,7 +1172,7 @@ def get_pipeline_health() -> Dict:
 
         total_recent   = _i(eps_row.get("total_recent"))
         span_sec       = _f(eps_row.get("span_seconds"))
-        events_per_sec = round(total_recent / span_sec, 1) if span_sec > 0 else 0.0
+        events_per_sec = float(f"{total_recent / span_sec:.1f}") if span_sec > 0 else 0.0
 
         lat_row = _exec_one("""
             WITH ordered AS (
@@ -961,7 +1191,7 @@ def get_pipeline_health() -> Dict:
             "WHERE ingested_at > NOW() - INTERVAL '1 minute'",
             endpoint="/pipeline-health/wr",
         )
-        db_write_rate   = round(_i(wr_row.get("writes_last_min")) / 60.0, 1)
+        db_write_rate   = float(f"{_i(wr_row.get('writes_last_min')) / 60.0:.1f}")
 
         latest_row      = _exec_one(
             "SELECT MAX(ingested_at) AS latest FROM events",
@@ -1195,3 +1425,90 @@ def health_check() -> Dict:
         _log_failure("/health", "endpoint", exc)
         _log_req("/health", (time.time() - t0) * 1000, "error")
         return {"status": "degraded", "database": str(exc)}
+
+@app.get("/report/generate")
+def generate_report() -> JSONResponse:
+    t0 = time.time()
+    try:
+        metrics = get_dashboard_metrics()
+        failures = get_system_failures(6)
+        report_data = {
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "dashboard_metrics": metrics,
+            "system_failures": failures
+        }
+        _log_req("/report/generate", (time.time() - t0) * 1000, "ok")
+        return JSONResponse(content=report_data)
+    except Exception as exc:
+        _log_failure("/report/generate", "endpoint", exc)
+        return JSONResponse(content={"error": str(exc)}, status_code=500)
+
+@app.get("/ml/predictions")
+def get_ml_predictions(limit: int = 100) -> JSONResponse:
+    t0 = time.time()
+    try:
+        rows = _exec_query("""
+            SELECT id, system_id, prediction_time, anomaly_score, failure_probability, predicted_fault, model_version
+            FROM ml_predictions
+            ORDER BY prediction_time DESC
+            LIMIT %s
+        """, (limit,), endpoint="/ml/predictions")
+        
+        result = []
+        for r in rows:
+            r['prediction_time'] = r['prediction_time'].isoformat() if r.get('prediction_time') else None
+            r['anomaly_score'] = float(r['anomaly_score']) if r.get('anomaly_score') is not None else 0.0
+            r['failure_probability'] = float(r['failure_probability']) if r.get('failure_probability') is not None else 0.0
+            result.append(r)
+            
+        _log_req("/ml/predictions", (time.time() - t0) * 1000, "ok")
+        return JSONResponse(content=result)
+    except Exception as exc:
+        _log_failure("/ml/predictions", "endpoint", exc)
+        return JSONResponse(content={"error": str(exc)}, status_code=500)
+
+@app.get("/ml/anomaly")
+def get_anomaly_scores(limit: int = 1000) -> JSONResponse:
+    t0 = time.time()
+    try:
+        rows = _exec_query("""
+            SELECT system_id, anomaly_score, prediction_time
+            FROM ml_predictions
+            ORDER BY prediction_time DESC
+            LIMIT %s
+        """, (limit,), endpoint="/ml/anomaly")
+        
+        result = []
+        for r in rows:
+            r['prediction_time'] = r['prediction_time'].isoformat() if r.get('prediction_time') else None
+            r['anomaly_score'] = float(r['anomaly_score']) if r.get('anomaly_score') is not None else 0.0
+            result.append(r)
+            
+        _log_req("/ml/anomaly", (time.time() - t0) * 1000, "ok")
+        return JSONResponse(content=result)
+    except Exception as exc:
+        _log_failure("/ml/anomaly", "endpoint", exc)
+        return JSONResponse(content={"error": str(exc)}, status_code=500)
+
+@app.get("/ml/failure-risk")
+def get_failure_risk(limit: int = 1000) -> JSONResponse:
+    t0 = time.time()
+    try:
+        rows = _exec_query("""
+            SELECT system_id, failure_probability, predicted_fault, prediction_time
+            FROM ml_predictions
+            ORDER BY prediction_time DESC
+            LIMIT %s
+        """, (limit,), endpoint="/ml/failure-risk")
+        
+        result = []
+        for r in rows:
+            r['prediction_time'] = r['prediction_time'].isoformat() if r.get('prediction_time') else None
+            r['failure_probability'] = float(r['failure_probability']) if r.get('failure_probability') is not None else 0.0
+            result.append(r)
+            
+        _log_req("/ml/failure-risk", (time.time() - t0) * 1000, "ok")
+        return JSONResponse(content=result)
+    except Exception as exc:
+        _log_failure("/ml/failure-risk", "endpoint", exc)
+        return JSONResponse(content={"error": str(exc)}, status_code=500)

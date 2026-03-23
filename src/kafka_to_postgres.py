@@ -55,6 +55,7 @@ from shared_constants import (
     RETENTION_CLEANUP_ENABLED,
     RETENTION_CLEANUP_INTERVAL_SECS,
     RETENTION_DELETE_BATCH_SIZE,
+    COLLECTOR_SECRET,
 )
 from sentinel_utils import (
     CircuitBreaker,
@@ -348,6 +349,22 @@ def setup_database(conn: Any) -> None:
             );
             CREATE INDEX IF NOT EXISTS idx_snapshots_system_time
                 ON feature_snapshots(system_id, snapshot_time DESC);
+            """
+        )
+
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ml_predictions (
+                id SERIAL PRIMARY KEY,
+                system_id VARCHAR(100) NOT NULL,
+                prediction_time TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                anomaly_score NUMERIC(4,3) DEFAULT 0.0,
+                failure_probability NUMERIC(4,3) DEFAULT 0.0,
+                predicted_fault VARCHAR(100) DEFAULT 'NONE',
+                model_version VARCHAR(50) DEFAULT 'v1'
+            );
+            CREATE INDEX IF NOT EXISTS idx_ml_predictions_system_time
+                ON ml_predictions(system_id, prediction_time DESC);
             """
         )
 
@@ -889,6 +906,12 @@ def run_consumer() -> None:
                         break
 
                     payload = message.value
+                    if payload.get("agent_key") != COLLECTOR_SECRET:
+                        logger.warning("Rejected message: Invalid or missing agent_key from %s", payload.get("system_info", {}).get("system_id", "unknown"))
+                        failed_messages += 1
+                        batch_failures += 1
+                        continue
+
                     system_id = payload.get("system_id") or (payload.get("system_info") or {}).get("system_id") or "unknown"
                     event_count = len(_extract_events_from_payload(payload))
                     message_started_at = time.time()

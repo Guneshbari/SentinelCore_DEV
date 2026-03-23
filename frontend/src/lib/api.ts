@@ -13,15 +13,14 @@ import type {
   FaultTypeCount,
   SystemFailureCount,
 } from '../types/telemetry';
+import { auth } from './firebase';
 
 const configuredApiBase = import.meta.env.VITE_SENTINEL_API_BASE_URL?.trim();
 const API_BASE = (configuredApiBase || 'http://localhost:8080').replace(/\/+$/, '');
-const configuredApiBearerToken = import.meta.env.VITE_SENTINEL_API_BEARER_TOKEN?.trim() || null;
 export const RECENT_EVENTS_LIMIT = Number.parseInt(
   import.meta.env.VITE_SENTINEL_RECENT_EVENTS_LIMIT ?? '1000',
   10,
 );
-export const hasConfiguredApiBearerToken = Boolean(configuredApiBearerToken);
 
 let apiSessionAuthenticated = false;
 
@@ -33,14 +32,20 @@ export function syncApiSessionAuth(isAuthenticated: boolean): void {
   apiSessionAuthenticated = isAuthenticated;
 }
 
-function buildHeaders(): HeadersInit | undefined {
-  if (!apiSessionAuthenticated || !configuredApiBearerToken) {
+async function buildHeaders(): Promise<HeadersInit | undefined> {
+  if (!apiSessionAuthenticated || !auth.currentUser) {
     return undefined;
   }
 
-  return {
-    Authorization: `Bearer ${configuredApiBearerToken}`,
-  };
+  try {
+    const token = await auth.currentUser.getIdToken();
+    return {
+      Authorization: `Bearer ${token}`,
+    };
+  } catch (error) {
+    console.error('Failed to get Firebase token for API request:', error);
+    return undefined;
+  }
 }
 
 function sanitizeTelemetryEvent(event: TelemetryEvent): TelemetryEvent {
@@ -66,12 +71,11 @@ async function fetchJSON<T>(
   endpoint: string,
   query?: Record<string, string | number | undefined>,
 ): Promise<T> {
-  const res = await fetch(buildEndpoint(endpoint, query), {
-    headers: buildHeaders(),
-  });
+  const headers = await buildHeaders();
+  const res = await fetch(buildEndpoint(endpoint, query), { headers });
   if (!res.ok) {
     if (res.status === 401 || res.status === 403) {
-      throw new Error('API authorization failed. Configure VITE_SENTINEL_API_BEARER_TOKEN to match the backend bearer token.');
+      throw new Error('API authorization failed. You must log in to access this data.');
     }
     throw new Error(`API error ${res.status}: ${res.statusText}`);
   }
@@ -83,6 +87,10 @@ async function fetchJSON<T>(
 interface FetchEventsOptions {
   limit?: number;
   includeRawXml?: boolean;
+  system_id?: string;
+  severity?: string;
+  fault_type?: string;
+  search?: string;
 }
 
 export async function fetchEvents(
@@ -93,12 +101,23 @@ export async function fetchEvents(
     : {
         limit: limitOrOptions.limit ?? RECENT_EVENTS_LIMIT,
         includeRawXml: limitOrOptions.includeRawXml ?? false,
+        system_id: limitOrOptions.system_id,
+        severity: limitOrOptions.severity,
+        fault_type: limitOrOptions.fault_type,
+        search: limitOrOptions.search,
       };
 
-  const events = await fetchJSON<TelemetryEvent[]>('/events', {
+  const query: Record<string, string | number | undefined> = {
     limit: options.limit,
     include_raw_xml: options.includeRawXml ? 1 : 0,
-  });
+  };
+
+  if (options.system_id) query.system_id = options.system_id;
+  if (options.severity) query.severity = options.severity;
+  if (options.fault_type) query.fault_type = options.fault_type;
+  if (options.search) query.search = options.search;
+
+  const events = await fetchJSON<TelemetryEvent[]>('/events', query);
 
   return options.includeRawXml ? events : events.map(sanitizeTelemetryEvent);
 }
@@ -111,8 +130,15 @@ export async function fetchAlerts(): Promise<Alert[]> {
   return fetchJSON<Alert[]>('/alerts');
 }
 
-export async function fetchMetrics(): Promise<MetricPoint[]> {
-  return fetchJSON<MetricPoint[]>('/metrics');
+export async function fetchRecentAlerts(): Promise<Alert[]> {
+  return fetchJSON<Alert[]>('/alerts/recent');
+}
+
+export async function fetchMetrics(startTime?: string, endTime?: string): Promise<MetricPoint[]> {
+  const query: Record<string, string> = {};
+  if (startTime) query.start_time = startTime;
+  if (endTime) query.end_time = endTime;
+  return fetchJSON<MetricPoint[]>('/metrics', query);
 }
 
 // ── Aggregation endpoints ───────────────────────────────
@@ -182,11 +208,46 @@ export async function fetchPipelineHealth(): Promise<PipelineHealthData> {
 
 export async function checkAPIHealth(): Promise<boolean> {
   try {
-    const res = await fetch(buildEndpoint('/health'), {
-      headers: buildHeaders(),
-    });
+    const headers = await buildHeaders();
+    const res = await fetch(buildEndpoint('/health'), { headers });
     return res.ok;
   } catch {
     return false;
   }
+}
+
+// ── Interactive/Mutation endpoints ───────────────────────
+
+export async function registerSystem(hostname: string, ipAddress: string, agentKey: string): Promise<{ success: boolean; system_id?: string }> {
+  const headers = await buildHeaders();
+  const res = await fetch(buildEndpoint('/systems/register'), {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ hostname, ip_address: ipAddress, agent_key: agentKey }),
+  });
+  return res.json();
+}
+
+export async function executeSystemCommand(systemId: string, command: string): Promise<{ success: boolean; output: string }> {
+  const headers = await buildHeaders();
+  const res = await fetch(buildEndpoint('/systems/command'), {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ system_id: systemId, command }),
+  });
+  return res.json();
+}
+
+export async function createAlertRule(ruleName: string, condition: string, severity: string, threshold: number): Promise<{ success: boolean }> {
+  const headers = await buildHeaders();
+  const res = await fetch(buildEndpoint('/alerts/rules'), {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ rule_name: ruleName, condition, severity, threshold }),
+  });
+  return res.json();
+}
+
+export function getReportDownloadUrl(): string {
+  return buildEndpoint('/report/generate');
 }

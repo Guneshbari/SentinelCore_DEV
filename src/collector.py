@@ -57,6 +57,7 @@ except ImportError:
 from shared_constants import (
     COLLECTOR_BASE_BATCH_SIZE,
     COLLECTOR_DYNAMIC_BATCHING_ENABLED,
+    COLLECTOR_SECRET,
     COLLECTOR_INTERVAL_SECONDS,
     COLLECTOR_MAX_BATCH_SIZE,
     LEVEL_NAMES,
@@ -736,6 +737,7 @@ class KafkaManager:
         events = payload.get('events', []) or []
         if not events:
             heartbeat_only_payload = dict(payload)
+            heartbeat_only_payload['agent_key'] = COLLECTOR_SECRET
             heartbeat_only_payload['events'] = []
             return [(heartbeat_only_payload, 0)]
 
@@ -744,6 +746,7 @@ class KafkaManager:
         for index in range(0, len(events), chunk_size):
             chunk_events = events[index:index + chunk_size]
             chunk_payload = dict(payload)
+            chunk_payload['agent_key'] = COLLECTOR_SECRET
             chunk_payload['events'] = chunk_events
             chunks.append((chunk_payload, len(chunk_events)))
         return chunks

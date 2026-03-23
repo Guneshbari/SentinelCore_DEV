@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Check, ArrowUpRight, ArrowUpDown } from 'lucide-react';
+import { Check, ArrowUpRight, ArrowUpDown, Plus, X } from 'lucide-react';
 import {
   ComposedChart,
   Area,
@@ -13,7 +13,8 @@ import {
 import SeverityBadge from '../components/shared/SeverityBadge';
 import { timeAgo, formatTimestamp, getActiveAlerts, getAcknowledgedAlerts } from '../data/mockData';
 import { useDashboard } from '../context/DashboardContext';
-import type { Alert } from '../types/telemetry';
+import { createAlertRule } from '../lib/api';
+import type { Alert, Severity } from '../types/telemetry';
 
 type SortKey = 'severity' | 'system' | 'title' | 'age' | 'status';
 type SortDir = 'asc' | 'desc';
@@ -54,6 +55,21 @@ export default function AlertsPage() {
   const showToast = (message: string, type: 'success' | 'error') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3000);
+  };
+
+  const [showAddRule, setShowAddRule] = useState(false);
+  const [addRuleForm, setAddRuleForm] = useState({ rule_name: '', condition: '', severity: 'WARNING' as Severity, threshold: 1 });
+
+  const handleAddRule = async () => {
+    if (!addRuleForm.rule_name || !addRuleForm.condition) return;
+    try {
+      await createAlertRule(addRuleForm.rule_name, addRuleForm.condition, addRuleForm.severity, addRuleForm.threshold);
+      setShowAddRule(false);
+      setAddRuleForm({ rule_name: '', condition: '', severity: 'WARNING', threshold: 1 });
+      showToast('Alert rule created', 'success');
+    } catch (e) {
+      showToast('Failed to create rule', 'error');
+    }
   };
 
   const handleAction = async (action: 'acknowledge' | 'escalate', alert: Alert, e?: React.MouseEvent) => {
@@ -122,19 +138,27 @@ export default function AlertsPage() {
             <h2 className="text-lg font-bold text-text-primary tracking-tight">Incident Queue</h2>
             <p className="text-[11px] text-text-muted mt-0.5">Active alerts & priority triage</p>
           </div>
-          <div className="flex glass-panel-solid rounded-md overflow-hidden border border-border">
+          <div className="flex items-center gap-4">
             <button
-              onClick={() => { setTab('active'); setSelectedAlert(null); }}
-              className={`px-4 py-1.5 text-xs font-semibold transition-colors ${
-                tab === 'active' ? 'bg-signal-primary/20 text-signal-primary' : 'text-text-secondary hover:text-text-primary'
-              }`}
-            >Active ({activeAlerts.length})</button>
-            <button
-              onClick={() => { setTab('acknowledged'); setSelectedAlert(null); }}
-              className={`px-4 py-1.5 text-xs font-semibold transition-colors border-l border-border ${
-                tab === 'acknowledged' ? 'bg-signal-primary/20 text-signal-primary' : 'text-text-secondary hover:text-text-primary'
-              }`}
-            >Acknowledged ({ackAlerts.length})</button>
+              onClick={() => setShowAddRule(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-signal-primary/20 text-signal-primary text-[11px] font-semibold rounded border border-signal-primary/30 hover:bg-signal-primary/30 transition-colors"
+            >
+              <Plus className="w-3.5 h-3.5" /> Add Rule
+            </button>
+            <div className="flex glass-panel-solid rounded-md overflow-hidden border border-border">
+              <button
+                onClick={() => { setTab('active'); setSelectedAlert(null); }}
+                className={`px-4 py-1.5 text-xs font-semibold transition-colors ${
+                  tab === 'active' ? 'bg-signal-primary/20 text-signal-primary' : 'text-text-secondary hover:text-text-primary'
+                }`}
+              >Active ({activeAlerts.length})</button>
+              <button
+                onClick={() => { setTab('acknowledged'); setSelectedAlert(null); }}
+                className={`px-4 py-1.5 text-xs font-semibold transition-colors border-l border-border ${
+                  tab === 'acknowledged' ? 'bg-signal-primary/20 text-signal-primary' : 'text-text-secondary hover:text-text-primary'
+                }`}
+              >Acknowledged ({ackAlerts.length})</button>
+            </div>
           </div>
         </div>
 
@@ -280,6 +304,47 @@ export default function AlertsPage() {
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Add Rule Modal */}
+      {showAddRule && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in" onClick={(e) => { if (e.target === e.currentTarget) setShowAddRule(false); }}>
+          <div className="w-[450px] bg-bg-primary rounded-xl shadow-[0_0_30px_rgba(0,0,0,0.8)] border border-border overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-bg-surface">
+              <h3 className="text-sm font-bold text-text-primary">Create Alert Rule</h3>
+              <button onClick={() => setShowAddRule(false)} className="text-text-muted hover:text-text-primary"><X className="w-4 h-4" /></button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-text-secondary mb-1">Rule Name</label>
+                <input type="text" value={addRuleForm.rule_name} onChange={(e) => setAddRuleForm({ ...addRuleForm, rule_name: e.target.value })} className="w-full bg-bg-surface border border-border rounded px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-signal-primary" placeholder="High CPU Usage" />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-text-secondary mb-1">Severity</label>
+                  <select value={addRuleForm.severity} onChange={(e) => setAddRuleForm({ ...addRuleForm, severity: e.target.value as Severity })} className="w-full bg-bg-surface border border-border rounded px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-signal-primary">
+                    <option value="CRITICAL">Critical</option>
+                    <option value="ERROR">Error</option>
+                    <option value="WARNING">Warning</option>
+                    <option value="INFO">Info</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-text-secondary mb-1">Threshold (Count)</label>
+                  <input type="number" min="1" value={addRuleForm.threshold} onChange={(e) => setAddRuleForm({ ...addRuleForm, threshold: Number(e.target.value) })} className="w-full bg-bg-surface border border-border rounded px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-signal-primary" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-text-secondary mb-1">Condition</label>
+                <textarea rows={3} value={addRuleForm.condition} onChange={(e) => setAddRuleForm({ ...addRuleForm, condition: e.target.value })} className="w-full bg-bg-surface border border-border rounded px-3 py-2 text-sm font-mono text-text-primary focus:outline-none focus:border-signal-primary" placeholder="cpu_usage > 90% FOR 5m" />
+              </div>
+              <div className="pt-2 flex justify-end gap-2">
+                <button onClick={() => setShowAddRule(false)} className="px-4 py-2 text-xs font-semibold text-text-secondary hover:text-text-primary">Cancel</button>
+                <button onClick={handleAddRule} className="px-4 py-2 bg-signal-primary text-[#0f172a] text-xs font-bold rounded hover:opacity-90">Create Rule</button>
+              </div>
+            </div>
           </div>
         </div>
       )}

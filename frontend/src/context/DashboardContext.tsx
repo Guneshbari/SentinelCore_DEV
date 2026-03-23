@@ -155,6 +155,7 @@ export function DashboardProvider({ children }: DashboardProviderProps) {
   const [selectedSeverities, setSelectedSeverities] = useState<Severity[]>([]);
   const [selectedFaultTypes, setSelectedFaultTypes] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
   const [refreshTick, setRefreshTick] = useState(0);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const loadInFlightRef = useRef(false);
@@ -198,7 +199,13 @@ export function DashboardProvider({ children }: DashboardProviderProps) {
         systemFailuresResult,
         pipelineHealthResult,
       ] = await Promise.allSettled([
-        fetchEvents(RECENT_EVENTS_LIMIT),
+        fetchEvents({
+          limit: RECENT_EVENTS_LIMIT,
+          search: debouncedSearchQuery || undefined,
+          system_id: selectedSystems.length === 1 ? selectedSystems[0] : undefined,
+          severity: selectedSeverities.length === 1 ? selectedSeverities[0] : undefined,
+          fault_type: selectedFaultTypes.length === 1 ? selectedFaultTypes[0] : undefined,
+        }),
         fetchSystems(),
         fetchAlerts(),
         fetchMetrics(),
@@ -256,7 +263,13 @@ export function DashboardProvider({ children }: DashboardProviderProps) {
       loadInFlightRef.current = false;
       setIsLoading(false);
     }
-  }, [aggregateWindowMinutes]);
+  }, [aggregateWindowMinutes, debouncedSearchQuery, selectedSystems, selectedSeverities, selectedFaultTypes]);
+
+  // Debounce search query
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearchQuery(searchQuery), 500);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
   // Initial data load
   useEffect(() => {

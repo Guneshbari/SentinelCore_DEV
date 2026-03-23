@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { ArrowUpDown, AlertCircle } from 'lucide-react';
+import { ArrowUpDown, AlertCircle, Download, Pause, Play } from 'lucide-react';
 import SeverityBadge from '../components/shared/SeverityBadge';
 import LiveEventStream from '../components/shared/LiveEventStream';
 import EventDetailInspector from '../components/shared/EventDetailInspector';
@@ -42,11 +42,15 @@ export default function EventsPage() {
   const [sortKey, setSortKey] = useState<SortKey>('event_time');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [selectedEvent, setSelectedEvent] = useState<TelemetryEvent | null>(null);
+  
+  const [isPaused, setIsPaused] = useState(false);
+  const [frozenEvents, setFrozenEvents] = useState<TelemetryEvent[]>([]);
 
   const sorted = useMemo(() => {
+    const displayEvents = isPaused ? frozenEvents : filteredEvents;
     const baseEvents = systemFilter
-      ? filteredEvents.filter((e) => e.system_id === systemFilter)
-      : filteredEvents;
+      ? displayEvents.filter((e) => e.system_id === systemFilter)
+      : displayEvents;
 
     return [...baseEvents].sort((a, b) => {
       let cmp = 0;
@@ -56,7 +60,7 @@ export default function EventsPage() {
       else if (sortKey === 'fault_type') cmp = a.fault_type.localeCompare(b.fault_type);
       return sortDir === 'asc' ? cmp : -cmp;
     });
-  }, [filteredEvents, systemFilter, sortKey, sortDir]);
+  }, [filteredEvents, frozenEvents, isPaused, systemFilter, sortKey, sortDir]);
 
   const paginated = sorted.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
   const totalPages = Math.ceil(sorted.length / PAGE_SIZE);
@@ -64,6 +68,35 @@ export default function EventsPage() {
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
     else { setSortKey(key); setSortDir('desc'); }
+  };
+
+  const togglePause = () => {
+    if (isPaused) {
+      setIsPaused(false);
+    } else {
+      setFrozenEvents(filteredEvents);
+      setIsPaused(true);
+    }
+  };
+
+  const exportCsv = () => {
+    const headers = ['Time', 'Severity', 'System', 'Provider', 'Fault Type', 'Message'];
+    const rows = sorted.map(e => [
+      new Date(e.event_time).toISOString(),
+      e.severity,
+      e.system_id,
+      e.provider_name || '',
+      e.fault_type,
+      `"${(e.fault_description || e.fault_type || '').replace(/"/g, '""')}"`
+    ]);
+    const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `sentinel_events_${new Date().toISOString().slice(0,10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -77,9 +110,17 @@ export default function EventsPage() {
           <p className="text-[11px] text-text-muted mt-0.5">Raw telemetry inspection and correlation</p>
         </div>
         <div className="flex items-center gap-3">
-          <span className="text-[11px] text-text-secondary">
+          <span className="text-[11px] text-text-secondary mr-2">
             {sorted.length.toLocaleString()} matching events
           </span>
+          <button onClick={togglePause} className={`flex items-center gap-1.5 px-3 py-1.5 rounded border text-[11px] font-semibold transition-colors ${isPaused ? 'bg-signal-highlight/20 border-signal-highlight/50 text-signal-highlight' : 'bg-bg-surface border-border text-text-primary hover:bg-bg-hover'}`}>
+            {isPaused ? <Play className="w-3.5 h-3.5" /> : <Pause className="w-3.5 h-3.5" />}
+            {isPaused ? 'Resume Stream' : 'Pause Stream'}
+          </button>
+          <button onClick={exportCsv} className="flex items-center gap-1.5 px-3 py-1.5 rounded border border-border bg-bg-surface text-[11px] font-semibold text-text-primary hover:bg-bg-hover transition-colors">
+            <Download className="w-3.5 h-3.5 text-signal-primary" />
+            Export CSV
+          </button>
         </div>
       </div>
 

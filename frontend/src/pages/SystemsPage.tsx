@@ -1,8 +1,9 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowUpDown } from 'lucide-react';
+import { ArrowUpDown, Terminal, RefreshCw, Plus, X } from 'lucide-react';
 import { timeAgo } from '../data/mockData';
 import { useDashboard } from '../context/DashboardContext';
+import { registerSystem, executeSystemCommand } from '../lib/api';
 import type { SystemStatus, SystemInfo } from '../types/telemetry';
 
 type SortKey = 'hostname' | 'status' | 'cpu' | 'memory' | 'disk' | 'alerts' | 'last_event' | 'last_seen';
@@ -44,6 +45,58 @@ export default function SystemsPage() {
 
   const onlineCount = filteredSystems.filter((s) => s.status === 'online').length;
   const degradedCount = filteredSystems.filter((s) => s.status === 'degraded').length;
+
+  const [showAddSystem, setShowAddSystem] = useState(false);
+  const [addSystemForm, setAddSystemForm] = useState({ hostname: '', ip_address: '', agent_key: '' });
+  
+  const [terminalSystem, setTerminalSystem] = useState<string | null>(null);
+  const [terminalCommand, setTerminalCommand] = useState('');
+  const [terminalOutput, setTerminalOutput] = useState('');
+  const [isCommanding, setIsCommanding] = useState(false);
+  
+  const [restartSystem, setRestartSystem] = useState<SystemInfo | null>(null);
+
+  const handleAddSystem = async () => {
+    const { hostname, ip_address, agent_key } = addSystemForm;
+    if (!hostname || !ip_address) return;
+    try {
+      await registerSystem(hostname, ip_address, agent_key);
+      setShowAddSystem(false);
+      setAddSystemForm({ hostname: '', ip_address: '', agent_key: '' });
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const terminalEndRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (terminalEndRef.current) terminalEndRef.current.scrollIntoView({ behavior: 'smooth' });
+  }, [terminalOutput]);
+
+  const handleExecuteCommand = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!terminalSystem || !terminalCommand) return;
+    setIsCommanding(true);
+    try {
+      const res = await executeSystemCommand(terminalSystem, terminalCommand);
+      setTerminalOutput(prev => prev + `\n> ${terminalCommand}\n` + (res.output || 'Command failed.'));
+      setTerminalCommand('');
+    } catch (e) {
+      setTerminalOutput(prev => prev + `\n> ${terminalCommand}\nError executing command.`);
+    } finally {
+      setIsCommanding(false);
+    }
+  };
+
+  const handleRestart = async () => {
+    if (!restartSystem) return;
+    try {
+      await executeSystemCommand(restartSystem.system_id, 'systemctl restart sentinel-agent');
+      setRestartSystem(null);
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
   const handleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -109,9 +162,15 @@ export default function SystemsPage() {
             <span className="w-1.5 h-1.5 rounded-full bg-accent-amber" />
             <span className="font-semibold text-text-primary">{degradedCount}</span> Degraded
           </span>
-          <span className="px-2 py-0.5 rounded bg-bg-surface border border-border text-text-secondary text-[11px] font-medium">
+          <span className="px-2 py-0.5 rounded bg-bg-surface border border-border text-text-secondary text-[11px] font-medium mr-2">
             {filteredSystems.length} Total
           </span>
+          <button
+            onClick={() => setShowAddSystem(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-signal-primary/20 text-signal-primary text-xs font-semibold rounded border border-signal-primary/30 hover:bg-signal-primary/30 transition-colors"
+          >
+            <Plus className="w-3.5 h-3.5" /> Add System
+          </button>
         </div>
       </div>
 
@@ -129,12 +188,13 @@ export default function SystemsPage() {
                 <SortHeader label="Disk" sortId="disk" activeSortKey={sortKey} onToggleSort={handleSort} align="right" />
                 <SortHeader label="Active Alerts" sortId="alerts" activeSortKey={sortKey} onToggleSort={handleSort} align="right" />
                 <SortHeader label="Last Event" sortId="last_event" activeSortKey={sortKey} onToggleSort={handleSort} align="right" />
+                <th className="px-4 py-3 bg-bg-surface text-right w-24"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border/40">
               {sortedSystems.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-5 py-8 text-center text-sm text-text-muted">
+                  <td colSpan={9} className="px-5 py-8 text-center text-sm text-text-muted">
                     No systems reporting in the selected criteria.
                   </td>
                 </tr>
@@ -188,6 +248,24 @@ export default function SystemsPage() {
                       <td className="px-4 py-2.5 text-right text-xs text-text-secondary w-40 truncate">
                         {recentEvent ? recentEvent.fault_type : <span className="text-text-muted">None</span>}
                       </td>
+                      <td className="px-4 py-2.5 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setTerminalSystem(system.system_id); setTerminalOutput(`Connected to ${system.hostname}...\nSentinelCore Terminal v2.0.0\n`); }}
+                            className="p-1.5 rounded bg-bg-surface border border-border text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors"
+                            title="Terminal Session"
+                          >
+                            <Terminal className="w-3.5 h-3.5 inline" />
+                          </button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setRestartSystem(system); }}
+                            className="p-1.5 rounded bg-bg-surface border border-border text-text-secondary hover:text-accent-orange hover:border-accent-orange/30 transition-colors"
+                            title="Restart Agent"
+                          >
+                            <RefreshCw className="w-3.5 h-3.5 inline" />
+                          </button>
+                        </div>
+                      </td>
                     </tr>
                   );
                 })
@@ -196,6 +274,90 @@ export default function SystemsPage() {
           </table>
         </div>
       </div>
+
+      {/* Add System Modal */}
+      {showAddSystem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in" onClick={(e) => { if (e.target === e.currentTarget) setShowAddSystem(false); }}>
+          <div className="w-[450px] bg-bg-primary rounded-xl shadow-[0_0_30px_rgba(0,0,0,0.8)] border border-border overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-bg-surface">
+              <h3 className="text-sm font-bold text-text-primary">Register New System</h3>
+              <button onClick={() => setShowAddSystem(false)} className="text-text-muted hover:text-text-primary"><X className="w-4 h-4" /></button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-text-secondary mb-1">Hostname</label>
+                <input type="text" value={addSystemForm.hostname} onChange={(e) => setAddSystemForm({ ...addSystemForm, hostname: e.target.value })} className="w-full bg-bg-surface border border-border rounded px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-signal-primary" placeholder="e.g. prod-db-03" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-text-secondary mb-1">IP Address</label>
+                <input type="text" value={addSystemForm.ip_address} onChange={(e) => setAddSystemForm({ ...addSystemForm, ip_address: e.target.value })} className="w-full bg-bg-surface border border-border rounded px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-signal-primary" placeholder="e.g. 192.168.1.10" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-text-secondary mb-1">Agent Key</label>
+                <input type="password" value={addSystemForm.agent_key} onChange={(e) => setAddSystemForm({ ...addSystemForm, agent_key: e.target.value })} className="w-full bg-bg-surface border border-border rounded px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-signal-primary" placeholder="Shared secret" />
+              </div>
+              <div className="pt-2 flex justify-end gap-2">
+                <button onClick={() => setShowAddSystem(false)} className="px-4 py-2 text-xs font-semibold text-text-secondary hover:text-text-primary">Cancel</button>
+                <button onClick={handleAddSystem} className="px-4 py-2 bg-signal-primary text-[#0f172a] text-xs font-bold rounded hover:opacity-90">Register</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Terminal Modal */}
+      {terminalSystem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in" onClick={(e) => { if (e.target === e.currentTarget) { setTerminalSystem(null); setTerminalOutput(''); } }}>
+          <div className="w-[700px] h-[500px] bg-[#050505] rounded-xl shadow-[0_0_30px_rgba(0,0,0,0.8)] border border-border overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-[#111]">
+              <div className="flex items-center gap-2">
+                <Terminal className="w-4 h-4 text-signal-primary" />
+                <h3 className="text-xs font-mono font-bold text-text-primary">{terminalSystem}</h3>
+              </div>
+              <button onClick={() => { setTerminalSystem(null); setTerminalOutput(''); }} className="text-text-muted hover:text-text-primary"><X className="w-4 h-4" /></button>
+            </div>
+            <div className="flex-1 p-4 overflow-y-auto font-mono text-[11px] text-[#A0AEC0] whitespace-pre-wrap flex flex-col">
+              <div className="flex-1">
+                {terminalOutput}
+                <div ref={terminalEndRef} />
+              </div>
+            </div>
+            <form onSubmit={handleExecuteCommand} className="flex px-4 py-3 bg-[#111] border-t border-border">
+              <span className="text-signal-primary font-mono text-xs mr-2 mt-0.5">$</span>
+              <input
+                type="text"
+                autoFocus
+                value={terminalCommand}
+                onChange={(e) => setTerminalCommand(e.target.value)}
+                disabled={isCommanding}
+                className="flex-1 bg-transparent border-none outline-none font-mono text-xs text-white"
+                placeholder="Enter command..."
+              />
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Restart Modal */}
+      {restartSystem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in" onClick={(e) => { if (e.target === e.currentTarget) setRestartSystem(null); }}>
+          <div className="w-[400px] bg-bg-primary rounded-xl shadow-[0_0_30px_rgba(0,0,0,0.8)] border border-border overflow-hidden">
+            <div className="p-5">
+              <div className="flex items-center gap-3 mb-3 text-accent-orange">
+                <RefreshCw className="w-5 h-5" />
+                <h3 className="text-sm font-bold">Restart Collector Agent</h3>
+              </div>
+              <p className="text-xs text-text-secondary leading-relaxed">
+                Are you sure you want to trigger an agent restart on <span className="font-semibold text-text-primary">{restartSystem.hostname}</span>? This will briefly suspend telemetry collection.
+              </p>
+              <div className="mt-5 flex justify-end gap-3">
+                <button onClick={() => setRestartSystem(null)} className="px-4 py-2 text-xs font-semibold text-text-secondary hover:text-text-primary">Cancel</button>
+                <button onClick={handleRestart} className="px-4 py-2 bg-accent-orange text-white text-xs font-bold rounded hover:opacity-90">Confirm Restart</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

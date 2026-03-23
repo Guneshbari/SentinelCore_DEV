@@ -6,6 +6,7 @@ import {
   getCriticalAlertCount,
   getTotalEventCount,
 } from '../../data/mockData';
+import { fetchRecentAlerts } from '../../lib/api';
 import { useDashboard, TIME_RANGE_LABELS, REFRESH_LABELS, type TimeRange, type AutoRefresh } from '../../context/DashboardContext';
 import { useAuth } from '../../context/AuthContext';
 
@@ -29,11 +30,10 @@ export default function Topbar() {
   const refreshRef = useRef<HTMLDivElement>(null);
   const userRef = useRef<HTMLDivElement>(null);
   const notificationRef = useRef<HTMLDivElement>(null);
-
-  const latestAlerts = alerts.slice(0, 10);
+  const [recentAlerts, setRecentAlerts] = useState<any[]>([]);
 
   useEffect(() => {
-    const fetchHealth = async () => {
+    const fetchHealthAndAlerts = async () => {
       try {
         const res = await fetch('http://localhost:8000/pipeline-health/status');
         const data = await res.json();
@@ -41,9 +41,14 @@ export default function Topbar() {
       } catch (e) {
         setPipelineStatus({ status: 'DOWN', delay_seconds: 999 });
       }
+
+      try {
+        const fetchAlertData = await fetchRecentAlerts();
+        setRecentAlerts(fetchAlertData);
+      } catch(e) {}
     };
-    fetchHealth();
-    const interval = setInterval(fetchHealth, 10000);
+    fetchHealthAndAlerts();
+    const interval = setInterval(fetchHealthAndAlerts, 10000);
     return () => clearInterval(interval);
   }, []);
 
@@ -194,7 +199,7 @@ export default function Topbar() {
             <div className="absolute right-0 top-full mt-1 w-80 bg-bg-surface border border-border rounded shadow-lg z-50 animate-fade-in max-h-[400px] overflow-y-auto py-1">
               <h4 className="px-4 py-2 text-xs font-semibold border-b border-border text-text-primary">Recent Alerts</h4>
               <div className="flex flex-col">
-                {latestAlerts.length > 0 ? latestAlerts.map(a => (
+                {recentAlerts.length > 0 ? recentAlerts.map(a => (
                   <div key={a.alert_id} className="px-4 py-3 border-b border-border/50 hover:bg-bg-hover text-left flex flex-col gap-1 transition-colors">
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-bold text-text-primary truncate pr-2">{a.title}</span>
@@ -203,7 +208,7 @@ export default function Topbar() {
                     <span className="text-[10px] text-text-muted">{a.hostname} • {new Date(a.triggered_at).toLocaleTimeString()}</span>
                   </div>
                 )) : (
-                  <div className="px-4 py-4 text-xs text-text-muted text-center">No recent alerts</div>
+                  <div className="px-4 py-4 text-xs text-text-muted text-center">No unacknowledged recent alerts</div>
                 )}
               </div>
             </div>
