@@ -48,3 +48,6 @@ status.json
 # Sensitive configuration - MUST NOT BE TRACKED
 config.json
 firebase-key.json
+
+# Node
+node_modules/
