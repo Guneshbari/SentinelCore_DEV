@@ -28,10 +28,14 @@ import {
   fetchSeverityDistribution,
   fetchSystemFailures,
   fetchSystems,
+  fetchMLPredictions,
+  fetchFeatureSnapshots,
   RECENT_EVENTS_LIMIT,
   type DashboardMetrics,
   type PipelineHealthData,
 } from '../lib/api';
+import { useSignalStore } from '../store/signalStore';
+import { useIncidentStore } from '../store/incidentStore';
 
 // ── Types ───────────────────────────────────────────────
 export type TimeRange = '5m' | '15m' | '1h' | '6h' | '24h';
@@ -198,6 +202,8 @@ export function DashboardProvider({ children }: DashboardProviderProps) {
         faultDistributionResult,
         systemFailuresResult,
         pipelineHealthResult,
+        mlPredictionsResult,
+        featureSnapshotsResult,
       ] = await Promise.allSettled([
         fetchEvents({
           limit: RECENT_EVENTS_LIMIT,
@@ -214,6 +220,8 @@ export function DashboardProvider({ children }: DashboardProviderProps) {
         fetchFaultDistribution(aggregateWindowMinutes),
         fetchSystemFailures(6, aggregateWindowMinutes),
         fetchPipelineHealth(),
+        fetchMLPredictions(),
+        fetchFeatureSnapshots(),
       ]);
 
       const failures: string[] = [];
@@ -227,6 +235,8 @@ export function DashboardProvider({ children }: DashboardProviderProps) {
         { name: 'fault-distribution', result: faultDistributionResult },
         { name: 'system-failures', result: systemFailuresResult },
         { name: 'pipeline-health', result: pipelineHealthResult },
+        { name: 'ml-predictions', result: mlPredictionsResult },
+        { name: 'feature-snapshots', result: featureSnapshotsResult },
       ];
 
       taskResults.forEach(({ name, result }) => {
@@ -253,6 +263,20 @@ export function DashboardProvider({ children }: DashboardProviderProps) {
           : 'Pipeline API unavailable';
         setPipelineHealthError(reason);
       }
+
+      // Push ML + snapshot data into signalStore, then trigger incidentStore derivation
+      const mlPreds = mlPredictionsResult.status === 'fulfilled' ? mlPredictionsResult.value : [];
+      const snaps   = featureSnapshotsResult.status === 'fulfilled' ? featureSnapshotsResult.value : [];
+      useSignalStore.getState().setMLPredictions(mlPreds);
+      useSignalStore.getState().setFeatureSnapshots(snaps);
+
+      // Recompute intelligence layer from the latest signals
+      const signals  = useSignalStore.getState().signals;
+      const systemsList = systemsResult.status === 'fulfilled' ? systemsResult.value : [];
+      const avgCpu = systemsList.length > 0
+        ? systemsList.reduce((sum, s) => sum + s.cpu_usage_percent, 0) / systemsList.length
+        : 0;
+      useIncidentStore.getState().deriveAll(signals, mlPreds, snaps, avgCpu);
 
       const errorMessage = failures.length > 0 ? failures.join(' | ') : null;
       setApiError(errorMessage);

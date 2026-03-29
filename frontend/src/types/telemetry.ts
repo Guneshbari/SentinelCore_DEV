@@ -56,6 +56,7 @@ export interface Alert {
   acknowledged_by?: string;
   escalated?: boolean;
   escalated_at?: string;
+  assigned_to?: string;
 }
 
 export interface MetricPoint {
@@ -86,3 +87,29 @@ export interface SystemFailureCount {
   failure_count: number;
 }
 
+/** ML prediction record from /ml/predictions */
+export interface MLPrediction {
+  id?: number;
+  system_id: string;
+  prediction_time: string;
+  anomaly_score: number;          // 0–1, > 0.7 = high risk
+  failure_probability: number;    // 0–1, > 0.6 = at risk
+  predicted_fault: string;
+  model_version?: string;
+}
+
+/** Feature snapshot record from /feature-snapshots */
+export interface FeatureSnapshot {
+  system_id: string;
+  snapshot_time: string;
+  total_events: number;
+  critical_count: number;
+  error_count: number;
+  warning_count: number;
+  info_count: number;
+  dominant_fault_type: string;
+  avg_confidence: number;
+  cpu_usage_percent: number;
+  memory_usage_percent: number;
+  disk_free_percent: number;
+}

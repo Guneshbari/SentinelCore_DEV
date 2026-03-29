@@ -12,8 +12,13 @@ import type {
   SeverityCount,
   FaultTypeCount,
   SystemFailureCount,
+  MLPrediction,
+  FeatureSnapshot,
 } from '../types/telemetry';
 import { auth } from './firebase';
+import * as mockApi from './mockApi';
+
+export const USE_MOCK_DATA = true;
 
 const configuredApiBase = import.meta.env.VITE_SENTINEL_API_BASE_URL?.trim();
 const API_BASE = (configuredApiBase || 'http://localhost:8080').replace(/\/+$/, '');
@@ -72,6 +77,22 @@ async function fetchJSON<T>(
   endpoint: string,
   query?: Record<string, string | number | undefined>,
 ): Promise<T> {
+  if (USE_MOCK_DATA) {
+    if (endpoint === '/events') return mockApi.fetchEvents() as unknown as T;
+    if (endpoint === '/systems') return mockApi.fetchSystems() as unknown as T;
+    if (endpoint === '/alerts') return mockApi.fetchAlerts() as unknown as T;
+    if (endpoint === '/alerts/recent') return mockApi.fetchRecentAlerts() as unknown as T;
+    if (endpoint === '/metrics') return mockApi.fetchMetrics(query?.start_time as string, query?.end_time as string, query?.window_minutes as number) as unknown as T;
+    if (endpoint === '/dashboard-metrics') return mockApi.fetchDashboardMetrics(query?.window_minutes as number) as unknown as T;
+    if (endpoint === '/fault-distribution') return mockApi.fetchFaultDistribution(query?.window_minutes as number) as unknown as T;
+    if (endpoint === '/severity-distribution') return mockApi.fetchSeverityDistribution(query?.window_minutes as number) as unknown as T;
+    if (endpoint === '/system-failures') return mockApi.fetchSystemFailures(query?.limit as number, query?.window_minutes as number) as unknown as T;
+    if (endpoint === '/system-metrics') return mockApi.fetchSystemMetrics() as unknown as T;
+    if (endpoint === '/pipeline-health') return mockApi.fetchPipelineHealth() as unknown as T;
+    if (endpoint === '/ml/predictions') return mockApi.fetchMLPredictions(query?.limit as number) as unknown as T;
+    if (endpoint === '/feature-snapshots') return mockApi.fetchFeatureSnapshots(query?.system_id as string, query?.limit as number) as unknown as T;
+  }
+
   const headers = await buildHeaders();
   const res = await fetch(buildEndpoint(endpoint, query), { headers });
   if (!res.ok) {
@@ -210,9 +231,26 @@ export async function fetchPipelineHealth(): Promise<PipelineHealthData> {
   return fetchJSON<PipelineHealthData>('/pipeline-health');
 }
 
+// ── ML / Feature intelligence endpoints ─────────────────
+
+export async function fetchMLPredictions(limit = 100): Promise<MLPrediction[]> {
+  return fetchJSON<MLPrediction[]>('/ml/predictions', { limit });
+}
+
+export async function fetchFeatureSnapshots(systemId?: string, limit = 100): Promise<FeatureSnapshot[]> {
+  return fetchJSON<FeatureSnapshot[]>('/feature-snapshots', {
+    system_id: systemId,
+    limit,
+  });
+}
+
+// Re-export types for consumers
+export type { MLPrediction, FeatureSnapshot };
+
 // ── Health check ────────────────────────────────────────
 
 export async function checkAPIHealth(): Promise<boolean> {
+  if (USE_MOCK_DATA) return true;
   try {
     const headers = await buildHeaders();
     const res = await fetch(buildEndpoint('/health'), { headers });
@@ -225,6 +263,7 @@ export async function checkAPIHealth(): Promise<boolean> {
 // ── Interactive/Mutation endpoints ───────────────────────
 
 export async function registerSystem(hostname: string, ipAddress: string, agentKey: string): Promise<{ success: boolean; system_id?: string }> {
+  if (USE_MOCK_DATA) return { success: true, system_id: 'mock-sys-' + Math.floor(Math.random() * 1000) };
   const headers = await buildHeaders();
   const res = await fetch(buildEndpoint('/systems/register'), {
     method: 'POST',
@@ -235,6 +274,7 @@ export async function registerSystem(hostname: string, ipAddress: string, agentK
 }
 
 export async function executeSystemCommand(systemId: string, command: string): Promise<{ success: boolean; output: string }> {
+  if (USE_MOCK_DATA) return { success: true, output: `[MOCK] Command '${command}' queued for node ${systemId}.` };
   const headers = await buildHeaders();
   const res = await fetch(buildEndpoint('/systems/command'), {
     method: 'POST',
@@ -248,6 +288,7 @@ export async function alertAction(
   action: 'acknowledge' | 'escalate',
   alertId: string,
 ): Promise<{ success: boolean }> {
+  if (USE_MOCK_DATA) return { success: true };
   const headers = await buildHeaders();
   const res = await fetch(buildEndpoint(`/alerts/${action}`), {
     method: 'POST',
@@ -259,6 +300,7 @@ export async function alertAction(
 }
 
 export async function createAlertRule(ruleName: string, condition: string, severity: string, threshold: number): Promise<{ success: boolean }> {
+  if (USE_MOCK_DATA) return { success: true };
   const headers = await buildHeaders();
   const res = await fetch(buildEndpoint('/alerts/rules'), {
     method: 'POST',
@@ -272,6 +314,10 @@ export async function createAlertRule(ruleName: string, condition: string, sever
  * Download a JSON report via authenticated fetch (avoids exposing the URL without a token).
  */
 export async function downloadReport(): Promise<void> {
+  if (USE_MOCK_DATA) {
+    alert("Mock report downloaded!");
+    return;
+  }
   const headers = await buildHeaders();
   const res = await fetch(buildEndpoint('/report/generate'), { headers });
   if (!res.ok) throw new Error(`Report generation failed: ${res.status}`);

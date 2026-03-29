@@ -51,3 +51,9 @@ firebase-key.json
 
 # Node
 node_modules/
+
+# Code Review Graph
+.code-review-graph/
+
+.mcp.json
+.opencode.json
