@@ -33,6 +33,7 @@ except Exception:  # pragma: no cover - test stubs may not expose kafka.structs
         def __new__(cls, offset: int, metadata: Any) -> "OffsetAndMetadata":
             return tuple.__new__(cls, (offset, metadata))
 from psycopg2.extras import Json, execute_values
+import psycopg2.sql as pgsql
 
 from shared_constants import (
     CIRCUIT_BREAKER_RESET_SECS,

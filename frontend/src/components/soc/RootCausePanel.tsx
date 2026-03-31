@@ -46,8 +46,9 @@ function ConfidenceBar({ value }: { value: number }) {
         }} />
       </div>
       <span style={{
-        fontFamily: 'JetBrains Mono, monospace',
-        fontSize:   10,
+        fontFamily: 'Inter, monospace',
+        fontSize:   12,
+        fontWeight: 700,
         color,
         width:      36,
         textAlign:  'right',
@@ -70,20 +71,21 @@ function CorrelationBlock({
 
   return (
     <div style={{
-      marginBottom:  isDominant ? 10 : 6,
-      padding:       isDominant ? '6px 8px' : '4px 6px',
-      background:    isDominant ? '#0F1E30' : 'transparent',
-      borderLeft:    isDominant ? `2px solid ${color}` : '1px solid #1E293B',
-      borderRadius:  isDominant ? 0 : 0,
+      marginBottom:  isDominant ? 12 : 4,
+      padding:       isDominant ? '8px 10px' : '4px 6px',
+      background:    isDominant ? '#111111' : 'transparent',
+      borderLeft:    isDominant ? `3px solid ${color}` : '1px solid #262626',
+      opacity:       isDominant ? 1 : 0.6,
+      borderRadius:  isDominant ? 4 : 0,
     }}>
       {/* Root cause label */}
       <div style={{
-        fontFamily:  'JetBrains Mono, monospace',
-        fontSize:    isDominant ? 11 : 10,
-        fontWeight:  isDominant ? 700 : 400,
-        color:       isDominant ? color : '#94A3B8',
-        marginBottom: 4,
-        lineHeight:  '1.3',
+        fontFamily:  'Inter, monospace',
+        fontSize:    isDominant ? 14 : 11,
+        fontWeight:  isDominant ? 700 : 500,
+        color:       isDominant ? color : '#737373',
+        marginBottom: 6,
+        lineHeight:  '1.4',
       }}>
         {isDominant && <span style={{ marginRight: 6 }}>●</span>}
         {correlation.root_cause}
@@ -96,46 +98,47 @@ function CorrelationBlock({
       <div style={{
         display:      'flex',
         alignItems:   'center',
-        gap:          4,
-        marginBottom: 4,
+        gap:          6,
+        marginBottom: 6,
         flexWrap:     'wrap',
       }}>
-        <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 9, color: '#334155', textTransform: 'uppercase' }}>
+        <span className="soc-label" style={{ marginRight: 4, fontSize: 10 }}>
           AFFECTED
         </span>
         {correlation.affected_systems.slice(0, 4).map((sys) => (
           <span
             key={sys}
             style={{
-              fontFamily:    'JetBrains Mono, monospace',
-              fontSize:      9,
-              color:         '#6B7C93',
-              background:    '#1E293B',
-              padding:       '1px 5px',
+              fontFamily:    'Inter, monospace',
+              fontSize:      11,
+              color:         '#9CA3AF',
+              background:    '#1A1A1A',
+              padding:       '2px 6px',
               borderRadius:  2,
+              border:        '1px solid #262626',
             }}
           >
             {sys.split('.')[0]}
           </span>
         ))}
         {correlation.affected_systems.length > 4 && (
-          <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 9, color: '#475569' }}>
+          <span style={{ fontFamily: 'Inter, monospace', fontSize: 11, color: '#737373' }}>
             +{correlation.affected_systems.length - 4}
           </span>
         )}
       </div>
 
       {/* Evidence lines */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
         {correlation.evidence.map((line, i) => (
           <div
             key={i}
             style={{
-              fontFamily: 'JetBrains Mono, monospace',
-              fontSize:   9,
-              color:      '#475569',
+              fontFamily: 'Inter, monospace',
+              fontSize:   11,
+              color:      '#737373',
               paddingLeft: 8,
-              borderLeft: '1px solid #1E293B',
+              borderLeft: '1px solid #262626',
             }}
           >
             {line}
@@ -160,7 +163,7 @@ export default function RootCausePanel({ incident }: { incident: Incident }) {
   }, [correlations, incident.systems]);
 
   return (
-    <div style={{ padding: '8px 12px', background: '#080d16', borderBottom: '1px solid #1E293B' }}>
+    <div style={{ padding: '8px 12px', background: '#0A0A0A', borderBottom: '1px solid #111111' }}>
 
       {/* Forecast badge — hidden for nominal systems */}
       {incident.systems[0] && (
@@ -170,19 +173,12 @@ export default function RootCausePanel({ incident }: { incident: Incident }) {
       )}
 
       {/* ROOT CAUSE section */}
-      <div style={{
-        fontFamily:    'JetBrains Mono, monospace',
-        fontSize:      9,
-        color:         '#334155',
-        textTransform: 'uppercase',
-        letterSpacing: '0.1em',
-        marginBottom:  6,
-      }}>
+      <h4 className="soc-label" style={{ marginBottom: 8, paddingBottom: 4, borderBottom: '1px solid #1A1A1A' }}>
         Root Cause Analysis
-      </div>
+      </h4>
 
       {relevant.length === 0 ? (
-        <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 10, color: '#334155', marginBottom: 8 }}>
+        <div style={{ fontFamily: 'Inter, monospace', fontSize: 11, color: '#737373', marginBottom: 8 }}>
           No correlated pattern detected — isolating single incident
         </div>
       ) : (

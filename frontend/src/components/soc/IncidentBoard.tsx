@@ -19,12 +19,7 @@ import ActionSuggestions from './ActionSuggestions';
 
 // ── Style maps ───────────────────────────────────────────────────────
 
-const SEV_BADGE: Record<Severity, React.CSSProperties> = {
-  CRITICAL: { background: '#7F1D1D', color: '#FCA5A5', border: '1px solid #DC2626' },
-  ERROR:    { background: '#431407', color: '#FDBA74', border: '1px solid #F97316' },
-  WARNING:  { background: '#422006', color: '#FDE68A', border: '1px solid #FACC15' },
-  INFO:     { background: '#0C2949', color: '#7DD3FC', border: '1px solid #38BDF8' },
-};
+
 
 const SEV_BORDER: Record<Severity, string> = {
   CRITICAL: '#DC2626', ERROR: '#F97316', WARNING: '#FACC15', INFO: '#38BDF8',
@@ -57,12 +52,8 @@ const LIFECYCLE_COLOR: Record<IncidentLifecycle, string> = {
 
 function SevBadge({ severity }: { severity: Severity }) {
   return (
-    <span style={{
-      ...SEV_BADGE[severity],
-      fontFamily: 'JetBrains Mono, monospace', fontSize: 9, fontWeight: 700,
-      padding: '1px 5px', borderRadius: 2, flexShrink: 0, letterSpacing: '0.04em',
-    }}>
-      {severity.slice(0, 4)}
+    <span className={`soc-badge soc-badge-${severity.toLowerCase()} w-[64px] justify-center`}>
+      {severity}
     </span>
   );
 }
@@ -71,14 +62,14 @@ function PriorityBadge({ label, score }: { label: PriorityLabel; score: number }
   const color = PRIORITY_COLOR[label];
   return (
     <span style={{
-      fontFamily: 'JetBrains Mono, monospace', fontSize: 8, color,
+      fontFamily: 'Inter, monospace', fontSize: 11, color,
       background: `${color}18`, border: `1px solid ${color}44`,
-      padding: '1px 4px', borderRadius: 2, flexShrink: 0, letterSpacing: '0.04em',
-      display: 'flex', alignItems: 'center', gap: 3,
+      padding: '2px 6px', borderRadius: 2, flexShrink: 0, letterSpacing: '0.04em',
+      display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700,
     }}>
       {label === 'CRITICAL' ? '⚡' : label === 'HIGH' ? '▲' : label === 'MEDIUM' ? '■' : '▽'}
       {label}
-      <span style={{ color: `${color}88`, fontSize: 8 }}>{score}</span>
+      <span style={{ color: `${color}`, fontSize: 11, opacity: 0.8 }}>{score}</span>
     </span>
   );
 }
@@ -227,18 +218,18 @@ const IncidentRow = React.memo(({
 
       {/* Trigger badge */}
       <span style={{
-        fontFamily: 'JetBrains Mono, monospace', fontSize: 8,
+        fontFamily: 'Inter, monospace', fontSize: 10, fontWeight: 600,
         color: TRIGGER_COLOR[incident.trigger],
-        background: '#0F172A', border: `1px solid ${TRIGGER_COLOR[incident.trigger]}33`,
-        padding: '1px 4px', borderRadius: 2, flexShrink: 0,
+        background: `${TRIGGER_COLOR[incident.trigger]}1A`, border: `1px solid ${TRIGGER_COLOR[incident.trigger]}40`,
+        padding: '3px 8px', borderRadius: 2, flexShrink: 0, letterSpacing: '0.05em'
       }}>
         {TRIGGER_LABEL[incident.trigger]}
       </span>
 
       {/* Title */}
       <span style={{
-        fontFamily: 'JetBrains Mono, monospace', fontSize: 10, fontWeight: 600,
-        color: '#E2E8F0', flex: 1, overflow: 'hidden',
+        fontFamily: 'Inter, monospace', fontSize: 13, fontWeight: 500,
+        color: '#FFFFFF', flex: 1, overflow: 'hidden', paddingLeft: 8,
         textOverflow: 'ellipsis', whiteSpace: 'nowrap',
       }}>
         {incident.title}
@@ -249,17 +240,18 @@ const IncidentRow = React.memo(({
 
       {/* Lifecycle */}
       <span style={{
-        fontFamily: 'JetBrains Mono, monospace', fontSize: 8,
-        color: LIFECYCLE_COLOR[incident.lifecycle], flexShrink: 0, width: 28,
+        fontFamily: 'Inter, monospace', fontSize: 11, fontWeight: 600,
+        color: LIFECYCLE_COLOR[incident.lifecycle], flexShrink: 0, width: 32,
       }}>
         {LIFECYCLE_LABEL[incident.lifecycle]}
       </span>
 
       {/* Confidence */}
       <span style={{
-        fontFamily: 'JetBrains Mono, monospace', fontSize: 9,
-        color: incident.confidence >= 0.75 ? '#DC2626' : incident.confidence >= 0.5 ? '#F97316' : '#6B7C93',
-        flexShrink: 0, width: 30, textAlign: 'right',
+        fontFamily: 'Inter, monospace', fontSize: 13,
+        fontWeight: incident.confidence >= 0.75 ? 700 : 500,
+        color: incident.confidence >= 0.75 ? '#FF3B30' : incident.confidence >= 0.5 ? '#FF8A00' : '#9CA3AF',
+        flexShrink: 0, width: 36, textAlign: 'right',
       }}>
         {(incident.confidence * 100).toFixed(0)}%
       </span>

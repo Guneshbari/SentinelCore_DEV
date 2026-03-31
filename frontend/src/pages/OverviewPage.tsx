@@ -34,10 +34,10 @@ export default function OverviewPage() {
       {/* KPI Strip — top */}
       <KpiStrip />
 
-      {/* Main SOC grid: 7fr 3fr */}
+      {/* Main SOC grid: 8fr 4fr */}
       <div
         className="grid gap-1 flex-1 min-h-0"
-        style={{ gridTemplateColumns: '7fr 3fr', minHeight: 0 }}
+        style={{ gridTemplateColumns: '8fr 4fr', minHeight: 0 }}
       >
         {/* LEFT — Incident board (Primary Focus) */}
         <IncidentBoard />
