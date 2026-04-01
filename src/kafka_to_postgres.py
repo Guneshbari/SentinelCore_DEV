@@ -17,6 +17,7 @@ import hmac
 import json
 import logging
 import os
+import re
 import signal
 import time
 from datetime import datetime, timezone
@@ -40,6 +41,8 @@ from shared_constants import (
     CIRCUIT_BREAKER_THRESHOLD,
     CONSUMER_DB_BACKOFF_SECS,
     CONSUMER_DB_SLOW_MS,
+    ALERT_ACK_COOLDOWN_MINUTES,
+    ALERT_RULE_LOOKBACK_MINUTES,
     DATA_RETENTION_DAYS,
     DB_INSERT_BATCH_SIZE,
     EVENT_PARTITIONING_ENABLED,
@@ -111,6 +114,379 @@ def _shift_month(dt: datetime, month_delta: int) -> datetime:
     year = dt.year + month_index // 12
     month = month_index % 12 + 1
     return dt.replace(year=year, month=month)
+
+
+def _safe_text(value: Any, fallback: str = "") -> str:
+    """Normalize arbitrary values into trimmed strings."""
+    if value is None:
+        return fallback
+    return str(value).strip()
+
+
+def _safe_int(value: Any, fallback: int = 0) -> int:
+    """Convert values to int with a deterministic fallback."""
+    try:
+        return int(value) if value is not None else fallback
+    except (TypeError, ValueError):
+        return fallback
+
+
+def _parse_json_object(raw_value: Any) -> Dict[str, Any]:
+    """Return a dict for JSON-like payloads."""
+    if isinstance(raw_value, dict):
+        return raw_value
+    if isinstance(raw_value, str) and raw_value.strip():
+        try:
+            parsed = json.loads(raw_value)
+            return parsed if isinstance(parsed, dict) else {}
+        except json.JSONDecodeError:
+            return {}
+    return {}
+
+
+def _build_native_alert_key(event_row: Dict[str, Any]) -> str:
+    """Create a stable dedupe key for built-in severity-backed alerts."""
+    key_parts = [
+        "native",
+        _safe_text(event_row.get("system_id"), "unknown"),
+        _safe_text(event_row.get("severity"), "INFO"),
+        _safe_text(event_row.get("fault_type"), "UNKNOWN"),
+        _safe_text(event_row.get("fault_subtype"), "UNKNOWN"),
+        _safe_text(event_row.get("provider_name"), "unknown"),
+    ]
+    return hashlib.sha256("|".join(key_parts).encode("utf-8")).hexdigest()
+
+
+def _event_context_value(event_row: Dict[str, Any], field_name: str) -> Any:
+    """Resolve rule field aliases against an inserted event row."""
+    diagnostic_context = _parse_json_object(event_row.get("diagnostic_context"))
+    field = field_name.strip().lower()
+    aliases = {
+        "cpu": "cpu_usage_percent",
+        "cpu_usage": "cpu_usage_percent",
+        "memory": "memory_usage_percent",
+        "mem": "memory_usage_percent",
+        "disk": "disk_free_percent",
+        "disk_free": "disk_free_percent",
+        "message": "normalized_message",
+        "provider": "provider_name",
+    }
+    field = aliases.get(field, field)
+    if field in event_row:
+        return event_row.get(field)
+    return diagnostic_context.get(field)
+
+
+def _parse_rule_condition(condition: str) -> Optional[Tuple[str, str, str]]:
+    """Parse simple expressions such as `cpu > 90` or `fault_type = SECURITY_EVENT`."""
+    match = re.match(r"^\s*([a-zA-Z0-9_\.]+)\s*(>=|<=|!=|=|==|>|<|contains)\s*(.+?)\s*$", condition or "")
+    if not match:
+        return None
+    field_name, operator, raw_value = match.groups()
+    return field_name.strip(), operator.strip().lower(), raw_value.strip().strip("'\"")
+
+
+def _rule_matches_event(rule_row: Dict[str, Any], event_row: Dict[str, Any]) -> bool:
+    """Evaluate a persisted alert rule against one event row."""
+    parsed = _parse_rule_condition(_safe_text(rule_row.get("condition")))
+    if not parsed:
+        return False
+
+    field_name, operator, expected_raw = parsed
+    actual_value = _event_context_value(event_row, field_name)
+    if actual_value is None:
+        return False
+
+    if operator == "contains":
+        return expected_raw.lower() in _safe_text(actual_value).lower()
+
+    actual_number = _safe_float(actual_value, float("nan"))
+    expected_number = _safe_float(expected_raw, float("nan"))
+    both_numeric = not any(map(lambda value: value != value, [actual_number, expected_number]))
+
+    if both_numeric:
+        comparisons = {
+            ">": actual_number > expected_number,
+            "<": actual_number < expected_number,
+            ">=": actual_number >= expected_number,
+            "<=": actual_number <= expected_number,
+            "=": actual_number == expected_number,
+            "==": actual_number == expected_number,
+            "!=": actual_number != expected_number,
+        }
+        return comparisons.get(operator, False)
+
+    actual_text = _safe_text(actual_value).lower()
+    expected_text = expected_raw.lower()
+    comparisons = {
+        "=": actual_text == expected_text,
+        "==": actual_text == expected_text,
+        "!=": actual_text != expected_text,
+        ">": actual_text > expected_text,
+        "<": actual_text < expected_text,
+        ">=": actual_text >= expected_text,
+        "<=": actual_text <= expected_text,
+    }
+    return comparisons.get(operator, False)
+
+
+def _build_rule_alert_key(rule_row: Dict[str, Any], event_row: Dict[str, Any]) -> str:
+    """Create a stable dedupe key for rule-driven alerts."""
+    key_parts = [
+        "rule",
+        str(rule_row.get("id", "0")),
+        _safe_text(event_row.get("system_id"), "unknown"),
+        _safe_text(event_row.get("severity"), "INFO"),
+        _safe_text(event_row.get("fault_type"), "UNKNOWN"),
+    ]
+    return hashlib.sha256("|".join(key_parts).encode("utf-8")).hexdigest()
+
+
+def _count_recent_rule_matches(cur: Any, rule_row: Dict[str, Any], event_row: Dict[str, Any]) -> int:
+    """Count recent matching events for one rule and system."""
+    event_time = event_row.get("ingested_at") or datetime.now(timezone.utc)
+    cur.execute(
+        """
+        SELECT
+            system_id,
+            severity,
+            fault_type,
+            fault_subtype,
+            provider_name,
+            diagnostic_context,
+            cpu_usage_percent,
+            memory_usage_percent,
+            disk_free_percent,
+            normalized_message
+        FROM events
+        WHERE system_id = %s
+          AND ingested_at >= %s - (%s || ' minutes')::interval
+        """,
+        (
+            _safe_text(event_row.get("system_id"), "unknown"),
+            event_time,
+            str(ALERT_RULE_LOOKBACK_MINUTES),
+        ),
+    )
+    match_count = 0
+    for row in cur.fetchall():
+        candidate = {
+            "system_id": row[0],
+            "severity": row[1],
+            "fault_type": row[2],
+            "fault_subtype": row[3],
+            "provider_name": row[4],
+            "diagnostic_context": row[5],
+            "cpu_usage_percent": _safe_float(row[6]),
+            "memory_usage_percent": _safe_float(row[7]),
+            "disk_free_percent": _safe_float(row[8]),
+            "normalized_message": _safe_text(row[9]),
+        }
+        if _rule_matches_event(rule_row, candidate):
+            match_count += 1
+    return match_count
+
+
+def _upsert_alert(
+    cur: Any,
+    *,
+    alert_key: str,
+    source_event_id: int,
+    system_id: str,
+    hostname: str,
+    severity: str,
+    rule_name: str,
+    title: str,
+    description: str,
+    source_type: str,
+    rule_id: Optional[int],
+    suppression_minutes: int,
+    escalation_target: Optional[str] = None,
+    metadata: Optional[Dict[str, Any]] = None,
+) -> None:
+    """Insert a new alert or roll a matching active alert forward."""
+    cur.execute(
+        """
+        SELECT id, acknowledged, suppressed_until, occurrence_count
+        FROM alerts
+        WHERE alert_key = %s
+        ORDER BY last_seen_at DESC
+        LIMIT 1
+        """,
+        (alert_key,),
+    )
+    existing = cur.fetchone()
+
+    if existing:
+        suppressed_until = existing[2]
+        if suppressed_until and suppressed_until > datetime.now(timezone.utc):
+            cur.execute(
+                """
+                UPDATE alerts
+                SET
+                    last_seen_at = NOW(),
+                    source_event_id = %s,
+                    occurrence_count = occurrence_count + 1
+                WHERE id = %s
+                """,
+                (source_event_id, existing[0]),
+            )
+            return
+
+        if not existing[1]:
+            cur.execute(
+                """
+                UPDATE alerts
+                SET
+                    last_seen_at = NOW(),
+                    source_event_id = %s,
+                    occurrence_count = occurrence_count + 1,
+                    title = %s,
+                    description = %s,
+                    metadata = COALESCE(metadata, '{}'::jsonb) || %s::jsonb,
+                    escalation_target = COALESCE(NULLIF(%s, ''), escalation_target)
+                WHERE id = %s
+                """,
+                (
+                    source_event_id,
+                    title,
+                    description,
+                    json.dumps(metadata or {}),
+                    escalation_target or "",
+                    existing[0],
+                ),
+            )
+            return
+
+    cur.execute(
+        """
+        INSERT INTO alerts (
+            source_event_id,
+            alert_key,
+            source_type,
+            rule_id,
+            rule_name,
+            system_id,
+            hostname,
+            severity,
+            title,
+            description,
+            occurrence_count,
+            acknowledged,
+            escalated,
+            suppressed_until,
+            escalation_target,
+            metadata
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 1, FALSE, FALSE, NULL, %s, %s::jsonb)
+        """,
+        (
+            source_event_id,
+            alert_key,
+            source_type,
+            rule_id,
+            rule_name,
+            system_id,
+            hostname,
+            severity,
+            title,
+            description,
+            escalation_target,
+            json.dumps(metadata or {}),
+        ),
+    )
+
+
+def generate_alerts_for_events(cur: Any, inserted_events: Sequence[Dict[str, Any]]) -> int:
+    """Generate built-in and rule-driven alerts for newly inserted events."""
+    if not inserted_events:
+        return 0
+
+    cur.execute(
+        """
+        SELECT
+            id,
+            rule_name,
+            condition,
+            severity,
+            threshold,
+            cooldown_minutes,
+            escalation_target,
+            enabled
+        FROM alert_rules
+        WHERE enabled = TRUE
+        ORDER BY id ASC
+        """
+    )
+    rules = [
+        {
+            "id": row[0],
+            "rule_name": row[1],
+            "condition": row[2],
+            "severity": row[3],
+            "threshold": row[4],
+            "cooldown_minutes": row[5],
+            "escalation_target": row[6],
+            "enabled": row[7],
+        }
+        for row in cur.fetchall()
+    ]
+
+    alerts_created = 0
+    for event_row in inserted_events:
+        severity = _safe_text(event_row.get("severity"), "INFO").upper()
+        system_id = _safe_text(event_row.get("system_id"), "unknown")
+        hostname = _safe_text(event_row.get("hostname"), system_id)
+        fault_type = _safe_text(event_row.get("fault_type"), "Unknown")
+        description = _safe_text(event_row.get("parsed_message")) or _safe_text(event_row.get("event_message")) or fault_type
+        source_event_id = _safe_int(event_row.get("id"))
+
+        if severity in {"CRITICAL", "ERROR", "WARNING"}:
+            _upsert_alert(
+                cur,
+                alert_key=_build_native_alert_key(event_row),
+                source_event_id=source_event_id,
+                system_id=system_id,
+                hostname=hostname,
+                severity=severity,
+                rule_name=f"{fault_type} Detection",
+                title=f"{severity}: {fault_type} on {hostname}",
+                description=description,
+                source_type="native",
+                rule_id=None,
+                suppression_minutes=ALERT_ACK_COOLDOWN_MINUTES,
+                escalation_target=None,
+                metadata={"provider_name": event_row.get("provider_name")},
+            )
+            alerts_created += 1
+
+        for rule_row in rules:
+            if not _rule_matches_event(rule_row, event_row):
+                continue
+
+            recent_count = _count_recent_rule_matches(cur, rule_row, event_row)
+            threshold = max(1, _safe_int(rule_row.get("threshold"), 1))
+            if recent_count < threshold:
+                continue
+
+            _upsert_alert(
+                cur,
+                alert_key=_build_rule_alert_key(rule_row, event_row),
+                source_event_id=source_event_id,
+                system_id=system_id,
+                hostname=hostname,
+                severity=_safe_text(rule_row.get("severity"), severity).upper(),
+                rule_name=_safe_text(rule_row.get("rule_name"), "Custom Rule"),
+                title=f"{_safe_text(rule_row.get('severity'), severity).upper()}: {_safe_text(rule_row.get('rule_name'), 'Custom Rule')} on {hostname}",
+                description=f"Rule matched: {_safe_text(rule_row.get('condition'))}",
+                source_type="rule",
+                rule_id=_safe_int(rule_row.get("id")),
+                suppression_minutes=max(1, _safe_int(rule_row.get("cooldown_minutes"), ALERT_ACK_COOLDOWN_MINUTES)),
+                escalation_target=_safe_text(rule_row.get("escalation_target")) or None,
+                metadata={"escalation_target": rule_row.get("escalation_target")},
+            )
+            alerts_created += 1
+
+    return alerts_created
 
 
 def _extract_events_from_payload(message: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -372,6 +748,75 @@ def setup_database(conn: Any) -> None:
             """
         )
 
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS alert_rules (
+                id SERIAL PRIMARY KEY,
+                rule_name VARCHAR(255) NOT NULL,
+                condition TEXT NOT NULL,
+                severity VARCHAR(20) NOT NULL,
+                threshold INT NOT NULL DEFAULT 1,
+                cooldown_minutes INT NOT NULL DEFAULT 30,
+                escalation_target TEXT,
+                enabled BOOLEAN NOT NULL DEFAULT TRUE,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            );
+            """
+        )
+
+        for column_name, column_type, default_value in [
+            ("cooldown_minutes", "INT", "30"),
+            ("escalation_target", "TEXT", "NULL"),
+            ("enabled", "BOOLEAN", "TRUE"),
+            ("created_at", "TIMESTAMP WITH TIME ZONE", "CURRENT_TIMESTAMP"),
+        ]:
+            query = pgsql.SQL("""
+                ALTER TABLE alert_rules
+                ADD COLUMN IF NOT EXISTS {col} {type} DEFAULT {default};
+            """).format(
+                col=pgsql.Identifier(column_name),
+                type=pgsql.SQL(column_type),
+                default=pgsql.SQL(default_value),
+            )
+            cur.execute(query)
+
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS alerts (
+                id SERIAL PRIMARY KEY,
+                source_event_id INTEGER,
+                alert_key VARCHAR(64) NOT NULL,
+                source_type VARCHAR(20) NOT NULL DEFAULT 'native',
+                rule_id INTEGER,
+                rule_name VARCHAR(255) NOT NULL,
+                system_id VARCHAR(100) NOT NULL,
+                hostname VARCHAR(255) NOT NULL,
+                severity VARCHAR(20) NOT NULL,
+                title TEXT NOT NULL,
+                description TEXT NOT NULL,
+                occurrence_count INT NOT NULL DEFAULT 1,
+                first_seen_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                last_seen_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                acknowledged BOOLEAN NOT NULL DEFAULT FALSE,
+                acknowledged_at TIMESTAMP WITH TIME ZONE,
+                escalated BOOLEAN NOT NULL DEFAULT FALSE,
+                escalated_at TIMESTAMP WITH TIME ZONE,
+                assigned_to VARCHAR(100),
+                suppressed_until TIMESTAMP WITH TIME ZONE,
+                escalation_status VARCHAR(20) NOT NULL DEFAULT 'pending',
+                escalation_target TEXT,
+                metadata JSONB NOT NULL DEFAULT '{}'::jsonb
+            );
+            CREATE INDEX IF NOT EXISTS idx_alerts_last_seen
+                ON alerts(last_seen_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_alerts_system_seen
+                ON alerts(system_id, last_seen_at DESC);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_alerts_active_key
+                ON alerts(alert_key)
+                WHERE acknowledged = FALSE;
+            """
+        )
+
         _ensure_partition_shadow_tables(cur)
 
     conn.commit()
@@ -489,9 +934,9 @@ def extract_and_prepare_events(msg: Dict[str, Any]) -> List[Tuple[Any, ...]]:
     return prepared_rows
 
 
-def insert_event_batch(cur: Any, rows: Sequence[Tuple[Any, ...]]) -> int:
-    """Insert prepared event rows in idempotent batches."""
-    inserted_batches = 0
+def insert_event_batch(cur: Any, rows: Sequence[Tuple[Any, ...]]) -> List[Dict[str, Any]]:
+    """Insert prepared event rows in idempotent batches and return inserted rows."""
+    inserted_rows: List[Dict[str, Any]] = []
     for batch_start in range(0, len(rows), DB_INSERT_BATCH_SIZE):
         batch_rows = rows[batch_start : batch_start + DB_INSERT_BATCH_SIZE]
         execute_values(
@@ -507,12 +952,38 @@ def insert_event_batch(cur: Any, rows: Sequence[Tuple[Any, ...]]) -> int:
                 fault_subtype, confidence_score
             ) VALUES %s
             ON CONFLICT (event_hash) DO NOTHING
+            RETURNING
+                id, system_id, hostname, provider_name, severity, fault_type,
+                diagnostic_context, ingested_at, event_record_id, event_hash,
+                cpu_usage_percent, memory_usage_percent, disk_free_percent,
+                event_message, parsed_message, normalized_message, fault_subtype
             """,
             batch_rows,
             page_size=DB_INSERT_BATCH_SIZE,
         )
-        inserted_batches += 1
-    return inserted_batches
+        for row in cur.fetchall():
+            inserted_rows.append(
+                {
+                    "id": row[0],
+                    "system_id": row[1],
+                    "hostname": row[2],
+                    "provider_name": row[3],
+                    "severity": row[4],
+                    "fault_type": row[5],
+                    "diagnostic_context": row[6],
+                    "ingested_at": row[7],
+                    "event_record_id": row[8],
+                    "event_hash": row[9],
+                    "cpu_usage_percent": _safe_float(row[10]),
+                    "memory_usage_percent": _safe_float(row[11]),
+                    "disk_free_percent": _safe_float(row[12]),
+                    "event_message": _safe_text(row[13]),
+                    "parsed_message": _safe_text(row[14]),
+                    "normalized_message": _safe_text(row[15]),
+                    "fault_subtype": _safe_text(row[16]),
+                }
+            )
+    return inserted_rows
 
 
 def process_message(conn: Any, msg: Dict[str, Any]) -> bool:
@@ -529,8 +1000,10 @@ def process_message(conn: Any, msg: Dict[str, Any]) -> bool:
     try:
         with conn.cursor() as cur:
             update_heartbeat(cur, msg)
+            inserted_events: List[Dict[str, Any]] = []
             if rows:
-                insert_event_batch(cur, rows)
+                inserted_events = insert_event_batch(cur, rows)
+                generate_alerts_for_events(cur, inserted_events)
         conn.commit()
         _db_cb.record_success()
         latency_ms = round((time.time() - write_started_at) * 1000, 2)
@@ -540,6 +1013,7 @@ def process_message(conn: Any, msg: Dict[str, Any]) -> bool:
                 "operation": "db_write",
                 "system_id": system_id,
                 "event_count": len(rows),
+                "inserted_event_count": len(inserted_events),
                 "db_write_latency_ms": latency_ms,
                 "status": "ok",
             },

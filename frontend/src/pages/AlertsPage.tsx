@@ -38,7 +38,14 @@ export default function AlertsPage() {
   const [selectedId, setSelectedId]   = useState<string | null>(null);
   const [toast, setToast]             = useState<{ msg: string; ok: boolean } | null>(null);
   const [showAddRule, setShowAddRule] = useState(false);
-  const [ruleForm, setRuleForm]       = useState({ name: '', condition: '', severity: 'WARNING' as Severity, threshold: 1 });
+  const [ruleForm, setRuleForm]       = useState({
+    name: '',
+    condition: '',
+    severity: 'WARNING' as Severity,
+    threshold: 1,
+    cooldownMinutes: 30,
+    escalationTarget: '',
+  });
   const [localStates, setLocalStates] = useState<Record<string, Partial<Alert>>>({});
 
   const showToast = (msg: string, ok: boolean) => {
@@ -96,9 +103,23 @@ export default function AlertsPage() {
   const handleAddRule = async () => {
     if (!ruleForm.name || !ruleForm.condition) return;
     try {
-      await createAlertRule(ruleForm.name, ruleForm.condition, ruleForm.severity, ruleForm.threshold);
+      await createAlertRule(
+        ruleForm.name,
+        ruleForm.condition,
+        ruleForm.severity,
+        ruleForm.threshold,
+        ruleForm.cooldownMinutes,
+        ruleForm.escalationTarget,
+      );
       setShowAddRule(false);
-      setRuleForm({ name: '', condition: '', severity: 'WARNING', threshold: 1 });
+      setRuleForm({
+        name: '',
+        condition: '',
+        severity: 'WARNING',
+        threshold: 1,
+        cooldownMinutes: 30,
+        escalationTarget: '',
+      });
       showToast('Rule created', true);
     } catch {
       showToast('Failed to create rule', false);
@@ -182,6 +203,8 @@ export default function AlertsPage() {
               { key: 'name', label: 'Rule Name', type: 'text', ph: 'High CPU Alert' },
               { key: 'condition', label: 'Condition', type: 'text', ph: 'cpu > 90' },
               { key: 'threshold', label: 'Threshold', type: 'number', ph: '1' },
+              { key: 'cooldownMinutes', label: 'Ack Cooldown (min)', type: 'number', ph: '30' },
+              { key: 'escalationTarget', label: 'Escalation Webhook', type: 'text', ph: 'https://example.com/webhook' },
             ].map(({ key, label, type, ph }) => (
               <div key={key}>
                 <div className="font-mono text-[9px] text-[#475569] uppercase mb-1">{label}</div>

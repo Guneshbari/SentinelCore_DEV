@@ -12,13 +12,15 @@ Hardening:
 """
 
 import json
+import hashlib
 import logging
 import threading
 import time
 import uuid
 from contextlib import asynccontextmanager, contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
+from urllib import error as urllib_error, request as urllib_request
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -46,6 +48,10 @@ from shared_constants import (
     DB_QUERY_TIMEOUT_SECONDS,
     DB_POOL_MIN_CONN,
     DB_POOL_MAX_CONN,
+    ALERT_ACK_COOLDOWN_MINUTES,
+    ALERT_ESCALATION_TIMEOUT_SECONDS,
+    ALERT_ESCALATION_WEBHOOK_URL,
+    ALERT_RULE_LOOKBACK_MINUTES,
 )
 from sentinel_utils import (
     retry_with_backoff,
@@ -163,12 +169,61 @@ async def lifespan(app: FastAPI):
                     );
                     CREATE TABLE IF NOT EXISTS alert_rules (
                         id SERIAL PRIMARY KEY,
-                        rule_name VARCHAR(255),
-                        condition TEXT,
-                        severity VARCHAR(20),
-                        threshold INT
+                        rule_name VARCHAR(255) NOT NULL,
+                        condition TEXT NOT NULL,
+                        severity VARCHAR(20) NOT NULL,
+                        threshold INT NOT NULL DEFAULT 1,
+                        cooldown_minutes INT NOT NULL DEFAULT 30,
+                        escalation_target TEXT,
+                        enabled BOOLEAN NOT NULL DEFAULT TRUE,
+                        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                    );
+                    CREATE TABLE IF NOT EXISTS alerts (
+                        id SERIAL PRIMARY KEY,
+                        source_event_id INTEGER,
+                        alert_key VARCHAR(64) NOT NULL,
+                        source_type VARCHAR(20) NOT NULL DEFAULT 'native',
+                        rule_id INTEGER,
+                        rule_name VARCHAR(255) NOT NULL,
+                        system_id VARCHAR(100) NOT NULL,
+                        hostname VARCHAR(255) NOT NULL,
+                        severity VARCHAR(20) NOT NULL,
+                        title TEXT NOT NULL,
+                        description TEXT NOT NULL,
+                        occurrence_count INT NOT NULL DEFAULT 1,
+                        first_seen_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                        last_seen_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                        acknowledged BOOLEAN NOT NULL DEFAULT FALSE,
+                        acknowledged_at TIMESTAMP WITH TIME ZONE,
+                        escalated BOOLEAN NOT NULL DEFAULT FALSE,
+                        escalated_at TIMESTAMP WITH TIME ZONE,
+                        assigned_to VARCHAR(100),
+                        suppressed_until TIMESTAMP WITH TIME ZONE,
+                        escalation_status VARCHAR(20) NOT NULL DEFAULT 'pending',
+                        escalation_target TEXT,
+                        metadata JSONB NOT NULL DEFAULT '{}'::jsonb
                     );
                 """)
+                cur.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_alerts_last_seen
+                        ON alerts(last_seen_at DESC);
+                    CREATE INDEX IF NOT EXISTS idx_alerts_system_seen
+                        ON alerts(system_id, last_seen_at DESC);
+                    CREATE UNIQUE INDEX IF NOT EXISTS idx_alerts_active_key
+                        ON alerts(alert_key)
+                        WHERE acknowledged = FALSE;
+                    """
+                )
+                for column_name, column_type, default_value in [
+                    ("cooldown_minutes", "INT", "30"),
+                    ("escalation_target", "TEXT", "NULL"),
+                    ("enabled", "BOOLEAN", "TRUE"),
+                    ("created_at", "TIMESTAMP WITH TIME ZONE", "CURRENT_TIMESTAMP"),
+                ]:
+                    cur.execute(
+                        f"ALTER TABLE alert_rules ADD COLUMN IF NOT EXISTS {column_name} {column_type} DEFAULT {default_value};"
+                    )
             conn.commit()
     except Exception as exc:
         logger.error("[startup] Failed to create audit_logs table: %s", exc)
@@ -438,6 +493,349 @@ def _iso(val: Any) -> Any:
     return val.isoformat() if isinstance(val, datetime) else val
 
 
+def _format_alert_row(row: Dict[str, Any], index: int = 0) -> Dict[str, Any]:
+    """Convert DB alert rows into the frontend alert shape."""
+    metadata = row.get("metadata")
+    if isinstance(metadata, str):
+        try:
+            metadata = json.loads(metadata)
+        except json.JSONDecodeError:
+            metadata = {}
+    if not isinstance(metadata, dict):
+        metadata = {}
+
+    return {
+        "alert_id": f"ALERT-{row.get('id', index)}",
+        "system_id": row.get("system_id", "unknown"),
+        "hostname": row.get("hostname") or row.get("system_id") or "unknown",
+        "severity": row.get("severity", "WARNING"),
+        "rule": row.get("rule_name", "Unknown Rule"),
+        "title": row.get("title", "Untitled Alert"),
+        "description": row.get("description", ""),
+        "triggered_at": _iso(row.get("first_seen_at") or row.get("last_seen_at")),
+        "acknowledged": bool(row.get("acknowledged")),
+        "acknowledged_at": _iso(row.get("acknowledged_at")),
+        "escalated": bool(row.get("escalated")),
+        "escalated_at": _iso(row.get("escalated_at")),
+        "assigned_to": row.get("assigned_to"),
+        "occurrence_count": row.get("occurrence_count", 1),
+        "acknowledged_by": metadata.get("acknowledged_by"),
+        "status": "acknowledged" if row.get("acknowledged") else "active",
+    }
+
+
+def _send_escalation_webhook(payload: Dict[str, Any], target_url: str) -> Tuple[bool, str]:
+    """Best-effort webhook delivery for escalated alerts."""
+    if not target_url:
+        return False, "no_target_configured"
+
+    req = urllib_request.Request(
+        target_url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib_request.urlopen(req, timeout=ALERT_ESCALATION_TIMEOUT_SECONDS) as response:
+            status_code = getattr(response, "status", 200)
+            return 200 <= status_code < 300, f"http_{status_code}"
+    except urllib_error.URLError as exc:
+        return False, str(exc.reason)
+    except Exception as exc:
+        return False, str(exc)
+
+
+def _safe_text(value: Any, fallback: str = "") -> str:
+    """Normalize arbitrary values into trimmed strings."""
+    if value is None:
+        return fallback
+    return str(value).strip()
+
+
+def _safe_float(value: Any, fallback: float = 0.0) -> float:
+    """Convert values to float with a deterministic fallback."""
+    try:
+        return float(value) if value is not None else fallback
+    except (TypeError, ValueError):
+        return fallback
+
+
+def _parse_rule_condition(condition: str) -> Optional[Tuple[str, str, str]]:
+    """Parse simple rule expressions such as `cpu > 90`."""
+    import re
+    match = re.match(r"^\s*([a-zA-Z0-9_\.]+)\s*(>=|<=|!=|=|==|>|<|contains)\s*(.+?)\s*$", condition or "")
+    if not match:
+        return None
+    field_name, operator, raw_value = match.groups()
+    return field_name.strip(), operator.strip().lower(), raw_value.strip().strip("'\"")
+
+
+def _event_rule_value(event_row: Dict[str, Any], field_name: str) -> Any:
+    """Resolve field aliases for rule evaluation."""
+    aliases = {
+        "cpu": "cpu_usage_percent",
+        "cpu_usage": "cpu_usage_percent",
+        "memory": "memory_usage_percent",
+        "mem": "memory_usage_percent",
+        "disk": "disk_free_percent",
+        "disk_free": "disk_free_percent",
+        "message": "normalized_message",
+        "provider": "provider_name",
+    }
+    resolved = aliases.get(field_name.strip().lower(), field_name.strip().lower())
+    if resolved in event_row:
+        return event_row.get(resolved)
+    diagnostic_context = event_row.get("diagnostic_context")
+    if isinstance(diagnostic_context, str):
+        try:
+            diagnostic_context = json.loads(diagnostic_context)
+        except json.JSONDecodeError:
+            diagnostic_context = {}
+    if isinstance(diagnostic_context, dict):
+        return diagnostic_context.get(resolved)
+    return None
+
+
+def _rule_matches_event(rule_row: Dict[str, Any], event_row: Dict[str, Any]) -> bool:
+    """Evaluate a simple rule against an event record."""
+    parsed = _parse_rule_condition(_safe_text(rule_row.get("condition")))
+    if not parsed:
+        return False
+    field_name, operator, expected_raw = parsed
+    actual_value = _event_rule_value(event_row, field_name)
+    if actual_value is None:
+        return False
+    if operator == "contains":
+        return expected_raw.lower() in _safe_text(actual_value).lower()
+    actual_number = _safe_float(actual_value, float("nan"))
+    expected_number = _safe_float(expected_raw, float("nan"))
+    both_numeric = not any(map(lambda value: value != value, [actual_number, expected_number]))
+    if both_numeric:
+        comparisons = {
+            ">": actual_number > expected_number,
+            "<": actual_number < expected_number,
+            ">=": actual_number >= expected_number,
+            "<=": actual_number <= expected_number,
+            "=": actual_number == expected_number,
+            "==": actual_number == expected_number,
+            "!=": actual_number != expected_number,
+        }
+        return comparisons.get(operator, False)
+    actual_text = _safe_text(actual_value).lower()
+    expected_text = expected_raw.lower()
+    comparisons = {
+        "=": actual_text == expected_text,
+        "==": actual_text == expected_text,
+        "!=": actual_text != expected_text,
+        ">": actual_text > expected_text,
+        "<": actual_text < expected_text,
+        ">=": actual_text >= expected_text,
+        "<=": actual_text <= expected_text,
+    }
+    return comparisons.get(operator, False)
+
+
+def _build_native_alert_key(event_row: Dict[str, Any]) -> str:
+    """Build the same stable native alert key used during live ingestion."""
+    key_parts = [
+        "native",
+        _safe_text(event_row.get("system_id"), "unknown"),
+        _safe_text(event_row.get("severity"), "INFO"),
+        _safe_text(event_row.get("fault_type"), "UNKNOWN"),
+        _safe_text(event_row.get("fault_subtype"), "UNKNOWN"),
+        _safe_text(event_row.get("provider_name"), "unknown"),
+    ]
+    return hashlib.sha256("|".join(key_parts).encode("utf-8")).hexdigest()
+
+
+def _build_rule_alert_key(rule_row: Dict[str, Any], event_row: Dict[str, Any]) -> str:
+    """Build the same stable rule alert key used during live ingestion."""
+    key_parts = [
+        "rule",
+        str(rule_row.get("id", "0")),
+        _safe_text(event_row.get("system_id"), "unknown"),
+        _safe_text(event_row.get("severity"), "INFO"),
+        _safe_text(event_row.get("fault_type"), "UNKNOWN"),
+    ]
+    return hashlib.sha256("|".join(key_parts).encode("utf-8")).hexdigest()
+
+
+def _backfill_native_alerts(limit: int = 500) -> int:
+    """Populate the alerts table from recent severe events when alerts are missing."""
+    with _get_db() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT
+                    id,
+                    system_id,
+                    COALESCE(NULLIF(hostname, ''), system_id) AS hostname,
+                    severity,
+                    fault_type,
+                    fault_subtype,
+                    provider_name,
+                    event_message,
+                    parsed_message,
+                    ingested_at
+                FROM events
+                WHERE severity IN ('CRITICAL', 'ERROR', 'WARNING')
+                ORDER BY ingested_at DESC
+                LIMIT %s
+                """,
+                (limit,),
+            )
+            recent_events = [dict(row) for row in cur.fetchall()]
+            newest_by_key: Dict[str, Dict[str, Any]] = {}
+            for event_row in recent_events:
+                alert_key = _build_native_alert_key(event_row)
+                newest_by_key.setdefault(alert_key, event_row)
+
+            inserted = 0
+            for alert_key, event_row in newest_by_key.items():
+                cur.execute(
+                    """
+                    INSERT INTO alerts (
+                        source_event_id,
+                        alert_key,
+                        source_type,
+                        rule_name,
+                        system_id,
+                        hostname,
+                        severity,
+                        title,
+                        description,
+                        occurrence_count,
+                        first_seen_at,
+                        last_seen_at,
+                        metadata
+                    )
+                    SELECT
+                        %s, %s, 'native', %s, %s, %s, %s, %s, %s, 1, %s, %s, %s::jsonb
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM alerts WHERE alert_key = %s AND acknowledged = FALSE
+                    )
+                    """,
+                    (
+                        event_row.get("id"),
+                        alert_key,
+                        f"{_safe_text(event_row.get('fault_type'), 'Unknown')} Detection",
+                        _safe_text(event_row.get("system_id"), "unknown"),
+                        _safe_text(event_row.get("hostname"), _safe_text(event_row.get("system_id"), "unknown")),
+                        _safe_text(event_row.get("severity"), "WARNING"),
+                        f"{_safe_text(event_row.get('severity'), 'WARNING')}: {_safe_text(event_row.get('fault_type'), 'Unknown')} on {_safe_text(event_row.get('hostname'), _safe_text(event_row.get('system_id'), 'unknown'))}",
+                        _safe_text(event_row.get("parsed_message")) or _safe_text(event_row.get("event_message")) or _safe_text(event_row.get("fault_type"), "No description"),
+                        event_row.get("ingested_at"),
+                        event_row.get("ingested_at"),
+                        json.dumps({"provider_name": event_row.get("provider_name")}),
+                        alert_key,
+                    ),
+                )
+                inserted += cur.rowcount or 0
+        conn.commit()
+    return inserted
+
+
+def _backfill_rule_alerts(rule_id: int) -> int:
+    """Evaluate a newly created rule against recent events to seed alert rows."""
+    with _get_db() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT id, rule_name, condition, severity, threshold, cooldown_minutes, escalation_target
+                FROM alert_rules
+                WHERE id = %s AND enabled = TRUE
+                """,
+                (rule_id,),
+            )
+            rule_row = dict(cur.fetchone() or {})
+            if not rule_row:
+                return 0
+
+            cur.execute(
+                """
+                SELECT
+                    id,
+                    system_id,
+                    COALESCE(NULLIF(hostname, ''), system_id) AS hostname,
+                    severity,
+                    fault_type,
+                    fault_subtype,
+                    provider_name,
+                    diagnostic_context,
+                    cpu_usage_percent,
+                    memory_usage_percent,
+                    disk_free_percent,
+                    event_message,
+                    parsed_message,
+                    normalized_message,
+                    ingested_at
+                FROM events
+                WHERE ingested_at >= NOW() - (%s || ' minutes')::interval
+                ORDER BY ingested_at DESC
+                LIMIT 500
+                """,
+                (str(ALERT_RULE_LOOKBACK_MINUTES),),
+            )
+            recent_events = [dict(row) for row in cur.fetchall()]
+            by_system: Dict[str, List[Dict[str, Any]]] = {}
+            for event_row in recent_events:
+                if _rule_matches_event(rule_row, event_row):
+                    by_system.setdefault(event_row.get("system_id", "unknown"), []).append(event_row)
+
+            inserted = 0
+            for system_id, matches in by_system.items():
+                if len(matches) < max(1, int(rule_row.get("threshold") or 1)):
+                    continue
+                newest = matches[0]
+                alert_key = _build_rule_alert_key(rule_row, newest)
+                cur.execute(
+                    """
+                    INSERT INTO alerts (
+                        source_event_id,
+                        alert_key,
+                        source_type,
+                        rule_id,
+                        rule_name,
+                        system_id,
+                        hostname,
+                        severity,
+                        title,
+                        description,
+                        occurrence_count,
+                        first_seen_at,
+                        last_seen_at,
+                        escalation_target,
+                        metadata
+                    )
+                    SELECT
+                        %s, %s, 'rule', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM alerts WHERE alert_key = %s AND acknowledged = FALSE
+                    )
+                    """,
+                    (
+                        newest.get("id"),
+                        alert_key,
+                        rule_row.get("id"),
+                        rule_row.get("rule_name"),
+                        newest.get("system_id"),
+                        newest.get("hostname"),
+                        _safe_text(rule_row.get("severity"), newest.get("severity") or "WARNING"),
+                        f"{_safe_text(rule_row.get('severity'), newest.get('severity') or 'WARNING')}: {_safe_text(rule_row.get('rule_name'), 'Custom Rule')} on {_safe_text(newest.get('hostname'), newest.get('system_id') or 'unknown')}",
+                        f"Rule matched: {_safe_text(rule_row.get('condition'))}",
+                        len(matches),
+                        newest.get("ingested_at"),
+                        newest.get("ingested_at"),
+                        rule_row.get("escalation_target"),
+                        json.dumps({"backfilled": True, "match_count": len(matches)}),
+                        alert_key,
+                    ),
+                )
+                inserted += cur.rowcount or 0
+        conn.commit()
+    return inserted
+
+
 def _coerce_float(val: Any, fallback: float = 0.0) -> float:
     """Coerce values to float for stable API output types."""
     try:
@@ -688,37 +1086,53 @@ def get_alerts(limit: int = 200) -> List[Dict]:
         limit = _bounded_limit(limit)
         rows = _exec_query(pgsql.SQL("""
             SELECT
+                id,
                 system_id,
                 COALESCE(NULLIF(hostname, ''), system_id) AS hostname,
-                severity, fault_type,
-                provider_name, diagnostic_context,
-                ingested_at AS event_time, id AS event_record_id,
-                acknowledged, escalated
-            FROM events
-            WHERE severity IN ('CRITICAL', 'ERROR', 'WARNING')
-            ORDER BY ingested_at DESC
+                severity,
+                rule_name,
+                title,
+                description,
+                first_seen_at,
+                last_seen_at,
+                occurrence_count,
+                acknowledged,
+                acknowledged_at,
+                escalated,
+                escalated_at,
+                assigned_to,
+                metadata
+            FROM alerts
+            ORDER BY last_seen_at DESC
             LIMIT %s
         """), (limit,), endpoint="/alerts")
 
-        alerts: List[Dict] = []
-        for i, row in enumerate(rows):
-            _, desc = _parse_diag(row.get("diagnostic_context"))
-            alerts.append({
-                "alert_id":     f"ALERT-{row.get('event_record_id', i)}",
-                "system_id":    row["system_id"],
-                "hostname":     row.get("hostname", ""),
-                "severity":     row["severity"],
-                "rule":         f"{row.get('fault_type', 'Unknown')} Detection",
-                "title":        (
-                    f"{row['severity']}: {row.get('fault_type', 'Unknown')}"
-                    f" on {row.get('hostname', 'Unknown')}"
-                ),
-                "description":  desc,
-                "triggered_at": _iso(row.get("event_time")),
-                "acknowledged": bool(row.get("acknowledged")),
-                "escalated":    bool(row.get("escalated")),
-                "status":       "acknowledged" if row.get("acknowledged") else "active",
-            })
+        if not rows:
+            _backfill_native_alerts(limit)
+            rows = _exec_query(pgsql.SQL("""
+                SELECT
+                    id,
+                    system_id,
+                    COALESCE(NULLIF(hostname, ''), system_id) AS hostname,
+                    severity,
+                    rule_name,
+                    title,
+                    description,
+                    first_seen_at,
+                    last_seen_at,
+                    occurrence_count,
+                    acknowledged,
+                    acknowledged_at,
+                    escalated,
+                    escalated_at,
+                    assigned_to,
+                    metadata
+                FROM alerts
+                ORDER BY last_seen_at DESC
+                LIMIT %s
+            """), (limit,), endpoint="/alerts/backfill")
+
+        alerts = [_format_alert_row(row, i) for i, row in enumerate(rows)]
 
         _log_req("/alerts", (time.time() - t0) * 1000, "ok", len(alerts))
         return alerts
@@ -736,35 +1150,55 @@ def get_recent_alerts() -> List[Dict]:
     try:
         rows = _exec_query("""
             SELECT
-                system_id, system_id AS hostname, severity, fault_type,
-                provider_name, diagnostic_context,
-                ingested_at AS event_time, id AS event_record_id,
-                acknowledged, escalated
-            FROM events
-            WHERE severity IN ('CRITICAL', 'ERROR', 'WARNING') AND acknowledged = FALSE
-            ORDER BY ingested_at DESC
+                id,
+                system_id,
+                COALESCE(NULLIF(hostname, ''), system_id) AS hostname,
+                severity,
+                rule_name,
+                title,
+                description,
+                first_seen_at,
+                last_seen_at,
+                occurrence_count,
+                acknowledged,
+                acknowledged_at,
+                escalated,
+                escalated_at,
+                assigned_to,
+                metadata
+            FROM alerts
+            WHERE acknowledged = FALSE
+            ORDER BY last_seen_at DESC
             LIMIT 10
         """, endpoint="/alerts/recent")
 
-        alerts: List[Dict] = []
-        for i, row in enumerate(rows):
-            _, desc = _parse_diag(row.get("diagnostic_context"))
-            alerts.append({
-                "alert_id":     f"ALERT-{row.get('event_record_id', i)}",
-                "system_id":    row["system_id"],
-                "hostname":     row.get("hostname", ""),
-                "severity":     row["severity"],
-                "rule":         f"{row.get('fault_type', 'Unknown')} Detection",
-                "title":        (
-                    f"{row['severity']}: {row.get('fault_type', 'Unknown')}"
-                    f" on {row.get('hostname', 'Unknown')}"
-                ),
-                "description":  desc,
-                "triggered_at": _iso(row.get("event_time")),
-                "acknowledged": bool(row.get("acknowledged")),
-                "escalated":    bool(row.get("escalated")),
-                "status":       "active",
-            })
+        if not rows:
+            _backfill_native_alerts(100)
+            rows = _exec_query("""
+                SELECT
+                    id,
+                    system_id,
+                    COALESCE(NULLIF(hostname, ''), system_id) AS hostname,
+                    severity,
+                    rule_name,
+                    title,
+                    description,
+                    first_seen_at,
+                    last_seen_at,
+                    occurrence_count,
+                    acknowledged,
+                    acknowledged_at,
+                    escalated,
+                    escalated_at,
+                    assigned_to,
+                    metadata
+                FROM alerts
+                WHERE acknowledged = FALSE
+                ORDER BY last_seen_at DESC
+                LIMIT 10
+            """, endpoint="/alerts/recent/backfill")
+
+        alerts = [_format_alert_row(row, i) for i, row in enumerate(rows)]
 
         _log_req("/alerts/recent", (time.time() - t0) * 1000, "ok", len(alerts))
         return alerts
@@ -800,11 +1234,36 @@ def acknowledge_alert(req: AlertActionRequest, request: Request) -> Dict:
         def _run_ack() -> bool:
             with _get_db() as conn:
                 with conn.cursor() as cur:
-                    cur.execute(
-                        "UPDATE events SET acknowledged = TRUE, acknowledged_at = NOW() WHERE id = %s",
-                        (record_id,)
-                    )
                     user_id = getattr(request.state, "uid", "anonymous")
+                    cur.execute(
+                        """
+                        UPDATE alerts
+                        SET
+                            acknowledged = TRUE,
+                            acknowledged_at = NOW(),
+                            suppressed_until = NOW() + (
+                                COALESCE(
+                                    NULLIF((SELECT cooldown_minutes FROM alert_rules WHERE id = alerts.rule_id), 0),
+                                    %s
+                                ) || ' minutes'
+                            )::interval,
+                            metadata = COALESCE(metadata, '{}'::jsonb) || %s::jsonb
+                        WHERE id = %s
+                        """,
+                        (
+                            str(ALERT_ACK_COOLDOWN_MINUTES),
+                            json.dumps({"acknowledged_by": user_id}),
+                            record_id,
+                        )
+                    )
+                    cur.execute(
+                        """
+                        UPDATE events
+                        SET acknowledged = TRUE, acknowledged_at = NOW()
+                        WHERE id = (SELECT source_event_id FROM alerts WHERE id = %s)
+                        """,
+                        (record_id,),
+                    )
                     cur.execute(
                         "INSERT INTO audit_logs (user_id, action, resource_id) VALUES (%s, %s, %s)",
                         (user_id, "acknowledge_alert", str(record_id))
@@ -829,15 +1288,59 @@ def escalate_alert(req: AlertActionRequest, request: Request) -> Dict:
             return {"success": False, "error": "Invalid alert_id format"}
         def _run_esc() -> bool:
             with _get_db() as conn:
-                with conn.cursor() as cur:
+                with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                     cur.execute(
-                        "UPDATE events SET escalated = TRUE, escalated_at = NOW() WHERE id = %s",
+                        """
+                        UPDATE alerts
+                        SET
+                            escalated = TRUE,
+                            escalated_at = NOW(),
+                            escalation_status = 'queued'
+                        WHERE id = %s
+                        RETURNING *
+                        """,
                         (record_id,)
                     )
+                    alert_row = dict(cur.fetchone() or {})
+                    if alert_row.get("source_event_id") is not None:
+                        cur.execute(
+                            "UPDATE events SET escalated = TRUE, escalated_at = NOW() WHERE id = %s",
+                            (alert_row.get("source_event_id"),),
+                        )
                     user_id = getattr(request.state, "uid", "anonymous")
                     cur.execute(
                         "INSERT INTO audit_logs (user_id, action, resource_id) VALUES (%s, %s, %s)",
                         (user_id, "escalate_alert", str(record_id))
+                    )
+                    target_url = (alert_row.get("escalation_target") or ALERT_ESCALATION_WEBHOOK_URL or "").strip()
+                    payload = {
+                        "alert_id": f"ALERT-{alert_row.get('id', record_id)}",
+                        "system_id": alert_row.get("system_id"),
+                        "hostname": alert_row.get("hostname"),
+                        "severity": alert_row.get("severity"),
+                        "rule_name": alert_row.get("rule_name"),
+                        "title": alert_row.get("title"),
+                        "description": alert_row.get("description"),
+                        "escalated_at": _iso(datetime.now(timezone.utc)),
+                    }
+                    delivered, delivery_status = _send_escalation_webhook(payload, target_url)
+                    cur.execute(
+                        """
+                        UPDATE alerts
+                        SET
+                            escalation_status = %s,
+                            escalation_target = COALESCE(NULLIF(%s, ''), escalation_target)
+                        WHERE id = %s
+                        """,
+                        (
+                            "delivered" if delivered else ("no_target" if not target_url else "failed"),
+                            target_url,
+                            record_id,
+                        ),
+                    )
+                    cur.execute(
+                        "INSERT INTO audit_logs (user_id, action, resource_id) VALUES (%s, %s, %s)",
+                        (user_id, f"escalation_delivery:{delivery_status}", str(record_id))
                     )
                 conn.commit()
             return True
@@ -855,29 +1358,50 @@ class AlertRuleRequest(BaseModel):
     condition: str
     severity: str
     threshold: int
+    cooldown_minutes: int = ALERT_ACK_COOLDOWN_MINUTES
+    escalation_target: Optional[str] = None
+    enabled: bool = True
 
 @app.post("/alerts/rules")
 def create_alert_rule(req: AlertRuleRequest, request: Request) -> Dict:
     t0 = time.time()
     try:
-        def _run_rule_insert() -> bool:
+        def _run_rule_insert() -> Optional[int]:
             with _get_db() as conn:
                 with conn.cursor() as cur:
                     cur.execute(
-                        "INSERT INTO alert_rules (rule_name, condition, severity, threshold) VALUES (%s, %s, %s, %s)",
-                        (req.rule_name, req.condition, req.severity, req.threshold)
+                        """
+                        INSERT INTO alert_rules (
+                            rule_name, condition, severity, threshold,
+                            cooldown_minutes, escalation_target, enabled
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+                        RETURNING id
+                        """,
+                        (
+                            req.rule_name,
+                            req.condition,
+                            req.severity,
+                            req.threshold,
+                            max(1, req.cooldown_minutes),
+                            (req.escalation_target or "").strip() or None,
+                            req.enabled,
+                        )
                     )
+                    rule_id = cur.fetchone()[0]
                     user_id = getattr(request.state, "uid", "anonymous")
                     cur.execute(
                         "INSERT INTO audit_logs (user_id, action, resource_id) VALUES (%s, %s, %s)",
                         (user_id, "create_alert_rule", req.rule_name)
                     )
                 conn.commit()
-            return True
+            return rule_id
         result, ok = retry_with_backoff(_run_rule_insert, label="/alerts/rules")
-        success = bool(ok and result)
+        rule_id = int(result) if ok and result else None
+        if rule_id is not None:
+            _backfill_rule_alerts(rule_id)
+        success = rule_id is not None
         _log_req("/alerts/rules", (time.time() - t0) * 1000, "ok" if success else "error")
-        return {"success": success}
+        return {"success": success, "rule_id": rule_id}
     except Exception as exc:
         _log_failure("/alerts/rules", "endpoint", exc)
         return {"success": False}

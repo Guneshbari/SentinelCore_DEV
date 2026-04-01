@@ -34,4 +34,4 @@ scrape_configs:
     metrics_path: /metrics-export
     scrape_interval: 5s
     static_configs:
-      - targets: ["localhost:8080"]
+      - targets: ["localhost:8000"]

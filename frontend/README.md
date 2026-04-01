@@ -62,6 +62,7 @@ Required when backend bearer auth is enabled:
 
 Optional:
 
+- `VITE_SENTINEL_USE_MOCK_DATA`
 - `VITE_SENTINEL_RECENT_EVENTS_LIMIT`
 
 ## Local Development
@@ -82,6 +83,8 @@ cmd /c npm run lint
 ## Production Notes
 
 - Set `VITE_SENTINEL_API_BASE_URL` to the central API host or reverse-proxy path.
+- Keep `VITE_SENTINEL_USE_MOCK_DATA=false` for the live dashboard. Turn it on
+  only as an emergency demo fallback; the mock data files remain in the repo.
 - Use a single central backend/API deployment for all monitored systems.
 - Serve the built frontend from the central dashboard host or reverse proxy.
 - Keep `VITE_SENTINEL_API_BEARER_TOKEN` aligned with

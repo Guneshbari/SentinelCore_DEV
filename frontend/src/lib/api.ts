@@ -18,10 +18,16 @@ import type {
 import { auth } from './firebase';
 import * as mockApi from './mockApi';
 
-export const USE_MOCK_DATA = true;
+const mockModeEnv = import.meta.env.VITE_SENTINEL_USE_MOCK_DATA?.trim().toLowerCase();
+
+export const USE_MOCK_DATA = mockModeEnv === '1'
+  || mockModeEnv === 'true'
+  || mockModeEnv === 'yes'
+  || mockModeEnv === 'on';
+export const DASHBOARD_DATA_MODE = USE_MOCK_DATA ? 'mock' : 'live';
 
 const configuredApiBase = import.meta.env.VITE_SENTINEL_API_BASE_URL?.trim();
-const API_BASE = (configuredApiBase || 'http://localhost:8080').replace(/\/+$/, '');
+const API_BASE = (configuredApiBase || 'http://localhost:8000').replace(/\/+$/, '');
 export const RECENT_EVENTS_LIMIT = Number.parseInt(
   import.meta.env.VITE_SENTINEL_RECENT_EVENTS_LIMIT ?? '1000',
   10,
@@ -33,8 +39,19 @@ if (!configuredApiBase) {
   console.warn('SentinelCore frontend is using the fallback API base URL. Set VITE_SENTINEL_API_BASE_URL for production deployments.');
 }
 
+if (USE_MOCK_DATA) {
+  console.warn('SentinelCore frontend is running in mock data mode because VITE_SENTINEL_USE_MOCK_DATA is enabled.');
+}
+
 export function syncApiSessionAuth(isAuthenticated: boolean): void {
   apiSessionAuthenticated = isAuthenticated;
+}
+
+export function getTransportStatusLabel(isConnected: boolean): 'LIVE' | 'MOCK' | 'OFFLINE' {
+  if (USE_MOCK_DATA) {
+    return 'MOCK';
+  }
+  return isConnected ? 'LIVE' : 'OFFLINE';
 }
 
 async function buildHeaders(): Promise<HeadersInit> {
@@ -55,7 +72,12 @@ async function buildHeaders(): Promise<HeadersInit> {
 }
 
 function sanitizeTelemetryEvent(event: TelemetryEvent): TelemetryEvent {
-  const safeEvent = { ...event };
+  const safeEvent = {
+    ...event,
+    hostname: event.hostname || event.system_id,
+    event_time: event.event_time || event.ingested_at || new Date().toISOString(),
+    fault_description: event.fault_description || event.parsed_message || event.event_message || event.fault_type,
+  };
   delete safeEvent.raw_xml;
   return safeEvent;
 }
@@ -299,13 +321,27 @@ export async function alertAction(
   return data;
 }
 
-export async function createAlertRule(ruleName: string, condition: string, severity: string, threshold: number): Promise<{ success: boolean }> {
+export async function createAlertRule(
+  ruleName: string,
+  condition: string,
+  severity: string,
+  threshold: number,
+  cooldownMinutes = 30,
+  escalationTarget?: string,
+): Promise<{ success: boolean }> {
   if (USE_MOCK_DATA) return { success: true };
   const headers = await buildHeaders();
   const res = await fetch(buildEndpoint('/alerts/rules'), {
     method: 'POST',
     headers: { ...headers, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ rule_name: ruleName, condition, severity, threshold }),
+    body: JSON.stringify({
+      rule_name: ruleName,
+      condition,
+      severity,
+      threshold,
+      cooldown_minutes: cooldownMinutes,
+      escalation_target: escalationTarget?.trim() || undefined,
+    }),
   });
   return res.json();
 }

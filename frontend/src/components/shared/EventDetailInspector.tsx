@@ -79,7 +79,15 @@ export default function EventDetailInspector({ event, onClose }: EventDetailInsp
             {fields.map((f) => (
               <div key={f.label} className="flex justify-between py-1 border-b border-[#1F2A37] last:border-0 text-[11px]">
                 <span className="text-[#6B7C93]">{f.label}</span>
-                <span className={`text-[#E6EDF3] ${f.mono ? 'font-mono text-[10px]' : 'font-medium'}`}>
+                <span
+                  className={`text-[#E6EDF3] ${f.mono ? 'font-mono text-[10px]' : 'font-medium'}`}
+                  style={{
+                    maxWidth: '70%',
+                    wordBreak: f.label === 'Event Hash' ? 'break-all' : 'normal',
+                    overflowWrap: f.label === 'Event Hash' ? 'anywhere' : 'normal',
+                    textAlign: 'right',
+                  }}
+                >
                   {f.value}
                 </span>
               </div>

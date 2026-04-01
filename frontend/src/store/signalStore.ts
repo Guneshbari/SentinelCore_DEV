@@ -36,7 +36,7 @@ export interface GroupedSignal {
 }
 
 const SIGNAL_WINDOW_MS = 2 * 60 * 1000;   // 2-minute grouping window
-const RETAIN_WINDOW_MS = 10 * 60 * 1000;  // only look at last 10 min for signals
+const RETAIN_WINDOW_MS = 24 * 60 * 60 * 1000;  // keep signal derivation useful for sparse test data
 const MAX_EVENTS        = 5_000;
 
 /** Rank order for severity resolution (highest wins) */

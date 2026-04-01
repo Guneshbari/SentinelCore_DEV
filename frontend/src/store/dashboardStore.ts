@@ -33,7 +33,6 @@ import { useFeedbackStore } from './feedbackStore';
 import {
   type TimeRange,
   type AutoRefresh,
-  type SystemHealthLevel,
   type SystemEventSummary,
   TIME_RANGE_WINDOW_MINUTES,
   deriveFilteredEvents,
@@ -89,6 +88,65 @@ interface DashboardState {
   clearFilters: () => void;
   loadData: () => Promise<void>;
   tickRefresh: () => void;
+}
+
+function deriveMetricsFromEvents(events: TelemetryEvent[], windowMinutes: number): MetricPoint[] {
+  if (events.length === 0) return [];
+
+  const now = Date.now();
+  const windowMs = windowMinutes * 60_000;
+  const recentEvents = events
+    .map((event) => ({
+      ...event,
+      ts: new Date(event.event_time || event.ingested_at || 0).getTime(),
+    }))
+    .filter((event) => Number.isFinite(event.ts) && now - event.ts <= windowMs);
+
+  if (recentEvents.length === 0) return [];
+
+  const minTs = Math.min(...recentEvents.map((event) => event.ts));
+  const maxTs = Math.max(...recentEvents.map((event) => event.ts));
+  const spanMs = Math.max(maxTs - minTs, 1);
+
+  let bucketSizeMs = 60 * 60_000;
+  if (spanMs <= 15 * 60_000) {
+    bucketSizeMs = 30_000;
+  } else if (spanMs <= 60 * 60_000) {
+    bucketSizeMs = 60_000;
+  } else if (spanMs <= 6 * 60 * 60_000) {
+    bucketSizeMs = 5 * 60_000;
+  } else if (spanMs <= 24 * 60 * 60_000) {
+    bucketSizeMs = 15 * 60_000;
+  }
+
+  const buckets = new Map<number, TelemetryEvent[]>();
+
+  for (const event of recentEvents) {
+    const bucket = Math.floor(event.ts / bucketSizeMs) * bucketSizeMs;
+    const bucketEvents = buckets.get(bucket) ?? [];
+    bucketEvents.push(event);
+    buckets.set(bucket, bucketEvents);
+  }
+
+  return [...buckets.entries()]
+    .sort((left, right) => left[0] - right[0])
+    .map(([bucketTs, bucketEvents]) => {
+      const countSeverity = (severity: Severity) => bucketEvents.filter((event) => event.severity === severity).length;
+      const avg = (selector: (event: TelemetryEvent) => number) =>
+        bucketEvents.reduce((sum, event) => sum + (selector(event) || 0), 0) / (bucketEvents.length || 1);
+
+      return {
+        timestamp: new Date(bucketTs).toISOString(),
+        event_count: bucketEvents.length,
+        critical_count: countSeverity('CRITICAL'),
+        error_count: countSeverity('ERROR'),
+        warning_count: countSeverity('WARNING'),
+        info_count: countSeverity('INFO'),
+        avg_cpu: avg((event) => event.cpu_usage_percent),
+        avg_memory: avg((event) => event.memory_usage_percent),
+        avg_disk_free: avg((event) => event.disk_free_percent),
+      };
+    });
 }
 
 export const useDashboardStore = create<DashboardState>((set, get) => ({
@@ -182,7 +240,6 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
         fetchFeatureSnapshots(),
       ]);
 
-      const failures: string[] = [];
       const partialUpdate: Partial<DashboardState> = {};
 
       if (eventsResult.status === 'fulfilled') partialUpdate.allEvents = eventsResult.value;
@@ -205,6 +262,10 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
       const mlPreds = mlResult.status === 'fulfilled' ? mlResult.value : [];
       const snaps   = featureResult.status === 'fulfilled' ? featureResult.value : [];
       const evts    = partialUpdate.allEvents ?? s.allEvents;
+
+      if (!partialUpdate.metrics || partialUpdate.metrics.length < 6) {
+        partialUpdate.metrics = deriveMetricsFromEvents(evts, windowMin);
+      }
       
       useSignalStore.getState().setEvents(evts);
       useSignalStore.getState().setMLPredictions(mlPreds);

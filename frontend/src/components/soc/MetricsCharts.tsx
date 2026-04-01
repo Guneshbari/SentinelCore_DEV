@@ -22,6 +22,7 @@ const MUTED      = '#334155';
 const TEXT_DIM   = '#475569';
 
 function buildOption(metrics: MetricPoint[]): EChartsOption {
+  const isSparse = metrics.length <= 2;
   const times = metrics.map((m) => {
     const d = new Date(m.timestamp);
     return d.toLocaleTimeString('en-US', {
@@ -55,6 +56,7 @@ function buildOption(metrics: MetricPoint[]): EChartsOption {
     xAxis: {
       type: 'category',
       data: times,
+      boundaryGap: metrics.length === 1,
       axisLabel: {
         color: TEXT_DIM, fontSize: 9,
         fontFamily: 'JetBrains Mono,monospace',
@@ -101,7 +103,9 @@ function buildOption(metrics: MetricPoint[]): EChartsOption {
         data:      metrics.map((m) => m.critical_count),
         lineStyle: { color: '#DC2626', width: 1 },
         itemStyle: { color: '#DC2626' },
-        symbol:    'none',
+        symbol:    isSparse ? 'circle' : 'none',
+        symbolSize: isSparse ? 7 : 4,
+        showSymbol: isSparse,
         smooth:    false,
         z: 4,
       },
@@ -111,7 +115,9 @@ function buildOption(metrics: MetricPoint[]): EChartsOption {
         data:      metrics.map((m) => m.error_count),
         lineStyle: { color: '#F97316', width: 1 },
         itemStyle: { color: '#F97316' },
-        symbol:    'none',
+        symbol:    isSparse ? 'circle' : 'none',
+        symbolSize: isSparse ? 7 : 4,
+        showSymbol: isSparse,
         smooth:    false,
         z: 3,
       },
@@ -121,7 +127,9 @@ function buildOption(metrics: MetricPoint[]): EChartsOption {
         data:      metrics.map((m) => m.warning_count),
         lineStyle: { color: '#FACC15', width: 1 },
         itemStyle: { color: '#FACC15' },
-        symbol:    'none',
+        symbol:    isSparse ? 'circle' : 'none',
+        symbolSize: isSparse ? 7 : 4,
+        showSymbol: isSparse,
         smooth:    false,
         z: 2,
       },
@@ -131,7 +139,9 @@ function buildOption(metrics: MetricPoint[]): EChartsOption {
         data:      metrics.map((m) => m.info_count),
         lineStyle: { color: '#38BDF8', width: 1, opacity: 0.6 },
         itemStyle: { color: '#38BDF8' },
-        symbol:    'none',
+        symbol:    isSparse ? 'circle' : 'none',
+        symbolSize: isSparse ? 7 : 4,
+        showSymbol: isSparse,
         smooth:    false,
         z: 1,
       },

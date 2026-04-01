@@ -12,7 +12,7 @@ import { useSignalStore } from '../store/signalStore';
 import { USE_MOCK_DATA } from './api';
 import type { TelemetryEvent } from '../types/telemetry';
 
-const WS_URL             = (import.meta.env.VITE_SENTINEL_WS_URL ?? 'ws://localhost:8080/ws/events').trim();
+const WS_URL             = (import.meta.env.VITE_SENTINEL_WS_URL ?? 'ws://localhost:8000/ws/events').trim();
 const BATCH_INTERVAL_MS  = 300;
 const INITIAL_RETRY_MS   = 1_000;
 const MAX_RETRY_MS       = 30_000;

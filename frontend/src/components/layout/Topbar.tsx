@@ -6,7 +6,7 @@ import {
   getCriticalAlertCount,
   getTotalEventCount,
 } from '../../data/mockData';
-import { fetchRecentAlerts } from '../../lib/api';
+import { fetchPipelineHealth, fetchRecentAlerts } from '../../lib/api';
 import { TIME_RANGE_LABELS, REFRESH_LABELS, type TimeRange, type AutoRefresh } from '../../lib/dashboardDerived';
 import { useDashboardStore } from '../../store/dashboardStore';
 import { useAuth } from '../../context/AuthContext';
@@ -42,9 +42,11 @@ export default function Topbar() {
   useEffect(() => {
     const fetchHealthAndAlerts = async () => {
       try {
-        const res = await fetch('http://localhost:8000/pipeline-health/status');
-        const data = await res.json();
-        setPipelineStatus(data);
+        const data = await fetchPipelineHealth();
+        setPipelineStatus({
+          status: data.lag_status || 'OK',
+          delay_seconds: data.kafka_lag || 0,
+        });
       } catch (e) {
         setPipelineStatus({ status: 'DOWN', delay_seconds: 999 });
       }

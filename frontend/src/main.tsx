@@ -5,7 +5,7 @@ import App from './App';
 import QueryProvider from './providers/QueryProvider';
 import { initWebSocket } from './lib/websocket';
 
-// Initialize WebSocket transport (no-op in mock mode)
+// Initialize WebSocket transport (stubbed only when mock mode is explicitly enabled)
 initWebSocket();
 
 createRoot(document.getElementById('root')!).render(

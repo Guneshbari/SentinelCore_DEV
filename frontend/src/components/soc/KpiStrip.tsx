@@ -8,6 +8,7 @@ import { useMemo } from 'react';
 import { useDashboardStore } from '../../store/dashboardStore';
 import { useSignalStore } from '../../store/signalStore';
 import { useIncidentStore } from '../../store/incidentStore';
+import { getTransportStatusLabel } from '../../lib/api';
 
 interface KpiItem {
   label: string;
@@ -32,6 +33,7 @@ export default function KpiStrip() {
     const active   = filteredAlerts.filter((a) => !a.acknowledged).length;
     const eps      = pipelineHealth?.events_per_sec ?? 0;
     const latency  = pipelineHealth?.avg_latency_ms ?? 0;
+    const transport = getTransportStatusLabel(isConnected);
 
     return [
       { label: 'SYSTEMS',   value: `${online}/${systems.length}`,  color: online < systems.length ? '#F97316' : '#22C55E' },
@@ -43,7 +45,7 @@ export default function KpiStrip() {
       { label: 'SIGNALS',   value: signalCount, color: '#94A3B8' },
       { label: 'EPS',       value: eps.toFixed(1), color: '#38BDF8' },
       { label: 'LATENCY',   value: latency > 0 ? `${latency}ms` : '—', color: latency > 200 ? '#F97316' : '#94A3B8' },
-      { label: 'TRANSPORT', value: isConnected ? 'LIVE' : 'MOCK', color: isConnected ? '#22C55E' : '#FACC15' },
+      { label: 'TRANSPORT', value: transport, color: transport === 'LIVE' ? '#22C55E' : transport === 'MOCK' ? '#FACC15' : '#F97316' },
     ];
   }, [systems, filteredAlerts, pipelineHealth, signalCount, isConnected, incidentCount, critIncidents, mlIncidents]);
 

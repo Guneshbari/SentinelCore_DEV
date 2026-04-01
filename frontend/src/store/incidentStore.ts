@@ -184,7 +184,7 @@ export function deriveIncidents(
 
   // Rule 1: Signal spikes (count > 5)
   for (const signal of signals) {
-    if (signal.count <= 5) continue;
+    if (signal.count < 3 && signal.severity !== 'CRITICAL' && signal.severity !== 'ERROR') continue;
 
     const ml           = mlPredictions.find((p) => p.system_id === signal.systemId);
     const anomalyScore = ml?.anomaly_score        ?? 0;

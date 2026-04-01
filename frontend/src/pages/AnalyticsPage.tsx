@@ -40,6 +40,7 @@ const AXIS_LABEL = { color: DIM, fontSize: 9, fontFamily: 'JetBrains Mono,monosp
 const SPLIT_LINE = { lineStyle: { color: '#151f2e', type: 'dashed' as const } };
 
 function buildFreqOption(metrics: any[]): EChartsOption {
+  const isSparse = metrics.length <= 2;
   return {
     backgroundColor: DARK,
     animation: false,
@@ -52,6 +53,7 @@ function buildFreqOption(metrics: any[]): EChartsOption {
     tooltip: { trigger: 'axis', axisPointer: { lineStyle: { color: BORDER } }, ...TOOLTIP_STYLE },
     xAxis: {
       type: 'category',
+      boundaryGap: metrics.length === 1,
       data: metrics.map((m) => new Date(m.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })),
       axisLabel: { ...AXIS_LABEL, interval: Math.max(0, Math.floor(metrics.length / 6) - 1) },
       axisLine: { lineStyle: { color: MUTED } },
@@ -61,10 +63,10 @@ function buildFreqOption(metrics: any[]): EChartsOption {
     yAxis: { type: 'value', axisLabel: AXIS_LABEL, axisLine: { show: false }, axisTick: { show: false }, splitLine: SPLIT_LINE },
     dataZoom: [{ type: 'inside' }, { type: 'slider', height: 12, bottom: 2, showDetail: false }],
     series: [
-      { name: 'CRITICAL', type: 'line', data: metrics.map((m) => m.critical_count), lineStyle: { color: '#DC2626', width: 1 }, symbol: 'none' },
-      { name: 'ERROR',    type: 'line', data: metrics.map((m) => m.error_count),    lineStyle: { color: '#F97316', width: 1 }, symbol: 'none' },
-      { name: 'WARNING',  type: 'line', data: metrics.map((m) => m.warning_count),  lineStyle: { color: '#FACC15', width: 1 }, symbol: 'none' },
-      { name: 'INFO',     type: 'line', data: metrics.map((m) => m.info_count),     lineStyle: { color: '#38BDF8', width: 1, opacity: 0.5 }, symbol: 'none' },
+      { name: 'CRITICAL', type: 'line', data: metrics.map((m) => m.critical_count), lineStyle: { color: '#DC2626', width: 1 }, symbol: isSparse ? 'circle' : 'none', symbolSize: isSparse ? 7 : 4, showSymbol: isSparse },
+      { name: 'ERROR',    type: 'line', data: metrics.map((m) => m.error_count),    lineStyle: { color: '#F97316', width: 1 }, symbol: isSparse ? 'circle' : 'none', symbolSize: isSparse ? 7 : 4, showSymbol: isSparse },
+      { name: 'WARNING',  type: 'line', data: metrics.map((m) => m.warning_count),  lineStyle: { color: '#FACC15', width: 1 }, symbol: isSparse ? 'circle' : 'none', symbolSize: isSparse ? 7 : 4, showSymbol: isSparse },
+      { name: 'INFO',     type: 'line', data: metrics.map((m) => m.info_count),     lineStyle: { color: '#38BDF8', width: 1, opacity: 0.5 }, symbol: isSparse ? 'circle' : 'none', symbolSize: isSparse ? 7 : 4, showSymbol: isSparse },
     ],
   };
 }
@@ -130,6 +132,7 @@ function buildFaultOption(faults: any[]): EChartsOption {
 }
 
 function buildResourceOption(metrics: any[]): EChartsOption {
+  const isSparse = metrics.length <= 2;
   return {
     backgroundColor: DARK,
     animation: false,
@@ -142,6 +145,7 @@ function buildResourceOption(metrics: any[]): EChartsOption {
     tooltip: { trigger: 'axis', ...TOOLTIP_STYLE },
     xAxis: {
       type: 'category',
+      boundaryGap: metrics.length === 1,
       data: metrics.map((m) => new Date(m.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })),
       axisLabel: { ...AXIS_LABEL, interval: Math.max(0, Math.floor(metrics.length / 6) - 1) },
       axisLine: { lineStyle: { color: MUTED } },
@@ -154,8 +158,8 @@ function buildResourceOption(metrics: any[]): EChartsOption {
       axisLine: { show: false }, axisTick: { show: false }, splitLine: SPLIT_LINE,
     },
     series: [
-      { name: 'CPU',  type: 'line', data: metrics.map((m) => m.avg_cpu?.toFixed(1)),    lineStyle: { color: '#F97316', width: 1 }, symbol: 'none' },
-      { name: 'MEM',  type: 'line', data: metrics.map((m) => m.avg_memory?.toFixed(1)), lineStyle: { color: '#38BDF8', width: 1 }, symbol: 'none' },
+      { name: 'CPU',  type: 'line', data: metrics.map((m) => Number(m.avg_cpu ?? 0)),    lineStyle: { color: '#F97316', width: 1 }, symbol: isSparse ? 'circle' : 'none', symbolSize: isSparse ? 7 : 4, showSymbol: isSparse },
+      { name: 'MEM',  type: 'line', data: metrics.map((m) => Number(m.avg_memory ?? 0)), lineStyle: { color: '#38BDF8', width: 1 }, symbol: isSparse ? 'circle' : 'none', symbolSize: isSparse ? 7 : 4, showSymbol: isSparse },
     ],
   };
 }
