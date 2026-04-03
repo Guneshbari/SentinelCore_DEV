@@ -14,6 +14,7 @@ import {
   useCallback,
   useState,
   useEffect,
+  useMemo,
 } from 'react';
 import {
   createColumnHelper,
@@ -27,6 +28,7 @@ import {
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useUIStore } from '../../store/uiStore';
 import type { TelemetryEvent, Severity } from '../../types/telemetry';
+import { ENABLE_PRETEXT_OPTIMIZATION, measureText } from '../../utils/textLayout';
 
 const SEV_COLORS: Record<Severity, string> = {
   CRITICAL: '#FF3B3B',
@@ -36,7 +38,10 @@ const SEV_COLORS: Record<Severity, string> = {
 };
 
 const ROW_HEIGHT    = 30;
+const ROW_PADDING_Y = 8;
 const OVERSCAN      = 15;
+const MESSAGE_FONT = '11px Inter';
+const MESSAGE_LINE_HEIGHT = 16;
 
 const colHelper = createColumnHelper<TelemetryEvent>();
 
@@ -155,12 +160,27 @@ export default function EventTable({ events }: EventTableProps) {
   });
 
   const { rows } = table.getRowModel();
+  const messageColumn = table.getColumn('msg');
+  const messageColumnWidth = Math.max((messageColumn?.getSize() ?? 280) - 16, 120);
+
+  const rowHeights = useMemo(
+    () => rows.map((row) => {
+      if (!ENABLE_PRETEXT_OPTIMIZATION) return ROW_HEIGHT;
+      const message = row.original.fault_description || row.original.fault_type || '';
+      const measured = measureText(message, messageColumnWidth, {
+        font: MESSAGE_FONT,
+        lineHeight: MESSAGE_LINE_HEIGHT,
+      });
+      return Math.max(ROW_HEIGHT, measured.height + ROW_PADDING_Y * 2);
+    }),
+    [messageColumnWidth, rows],
+  );
 
   const parentRef = useRef<HTMLDivElement>(null);
   const virtualizer = useVirtualizer({
     count:            rows.length,
     getScrollElement: () => parentRef.current,
-    estimateSize:     () => ROW_HEIGHT,
+    estimateSize:     (index) => rowHeights[index] ?? ROW_HEIGHT,
     overscan:         OVERSCAN,
   });
 
@@ -255,7 +275,7 @@ export default function EventTable({ events }: EventTableProps) {
                   position:  'absolute',
                   top:        item.start,
                   left:       0,
-                  height:     ROW_HEIGHT,
+                  height:     item.size,
                   display:    'flex',
                   alignItems: 'center',
                   width:      '100%',
@@ -286,6 +306,9 @@ export default function EventTable({ events }: EventTableProps) {
                       borderRight: '1px solid #1F2A37',
                       fontFamily: 'Inter, monospace',
                       fontSize:   11,
+                      whiteSpace: cell.column.id === 'msg' ? 'normal' : 'nowrap',
+                      display: 'flex',
+                      alignItems: 'center',
                     }}
                   >
                     {flexRender(cell.column.columnDef.cell, cell.getContext())}

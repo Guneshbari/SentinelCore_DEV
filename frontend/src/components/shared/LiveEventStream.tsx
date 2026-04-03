@@ -1,12 +1,16 @@
-import { useState, useMemo, useRef } from 'react';
+import { useState, useMemo } from 'react';
 import { Radio } from 'lucide-react';
 import SeverityBadge from './SeverityBadge';
 import EventDetailInspector from './EventDetailInspector';
 import { formatTimestamp } from '../../data/mockData';
 import { useDashboardStore } from '../../store/dashboardStore';
 import type { TelemetryEvent } from '../../types/telemetry';
+import { ENABLE_PRETEXT_OPTIMIZATION, measureText, useDebouncedElementWidth } from '../../utils/textLayout';
 
 const MAX_VISIBLE = 12;
+const STREAM_ROW_MIN_HEIGHT = 28;
+const STREAM_FONT = '11px Inter';
+const STREAM_LINE_HEIGHT = 16;
 
 export default function LiveEventStream() {
   const filteredEvents = useDashboardStore((s) => s.filteredEvents);
@@ -19,8 +23,20 @@ export default function LiveEventStream() {
   const [isLive, setIsLive] = useState(true);
   const [pausedEvents, setPausedEvents] = useState<TelemetryEvent[]>([]);
   const [selectedEvent, setSelectedEvent] = useState<TelemetryEvent | null>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
+  const [containerRef, containerWidth] = useDebouncedElementWidth<HTMLDivElement>(90);
   const streamEvents = isLive ? sortedRecentEvents : pausedEvents;
+  const messageWidth = Math.max(containerWidth - 360, 120);
+  const eventHeights = useMemo(
+    () => streamEvents.map((event) => {
+      if (!ENABLE_PRETEXT_OPTIMIZATION) return STREAM_ROW_MIN_HEIGHT;
+      const measured = measureText(event.fault_description || event.provider_name || event.fault_type, messageWidth, {
+        font: STREAM_FONT,
+        lineHeight: STREAM_LINE_HEIGHT,
+      });
+      return Math.max(STREAM_ROW_MIN_HEIGHT, measured.height + 12);
+    }),
+    [messageWidth, streamEvents],
+  );
 
   function toggleLiveState() {
     if (isLive) {
@@ -67,6 +83,7 @@ export default function LiveEventStream() {
             className={`flex items-center gap-3 px-4 py-1 border-b border-border/30 text-[11px] hover:bg-bg-hover transition-colors cursor-pointer ${
               i === 0 ? 'bg-bg-hover/50' : ''
             }`}
+            style={{ minHeight: eventHeights[i] }}
           >
             <span className="text-text-muted font-mono whitespace-nowrap w-[110px] shrink-0">
               {formatTimestamp(e.event_time)}
@@ -76,7 +93,7 @@ export default function LiveEventStream() {
               <SeverityBadge severity={e.severity} />
             </span>
             <span className="text-text-secondary w-[100px] shrink-0 truncate">{e.fault_type}</span>
-            <span className="text-text-muted truncate flex-1">{e.fault_description || e.provider_name}</span>
+            <span className="text-text-muted flex-1" style={{ whiteSpace: 'normal', lineHeight: '16px' }}>{e.fault_description || e.provider_name}</span>
           </div>
         ))}
       </div>

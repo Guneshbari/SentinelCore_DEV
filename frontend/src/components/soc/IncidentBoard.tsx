@@ -16,6 +16,7 @@ import { useUIStore }  from '../../store/uiStore';
 import type { Severity } from '../../types/telemetry';
 import RootCausePanel   from './RootCausePanel';
 import ActionSuggestions from './ActionSuggestions';
+import { ENABLE_PRETEXT_OPTIMIZATION, measureText, useDebouncedElementWidth } from '../../utils/textLayout';
 
 // ── Style maps ───────────────────────────────────────────────────────
 
@@ -47,6 +48,9 @@ const LIFECYCLE_LABEL: Record<IncidentLifecycle, string> = {
 const LIFECYCLE_COLOR: Record<IncidentLifecycle, string> = {
   OPEN: '#F97316', ACKNOWLEDGED: '#38BDF8', RESOLVED: '#22C55E',
 };
+const INCIDENT_ROW_MIN_HEIGHT = 40;
+const INCIDENT_TITLE_FONT = '13px Inter';
+const INCIDENT_TITLE_LINE_HEIGHT = 18;
 
 // ── Sub-components ───────────────────────────────────────────────────
 
@@ -191,10 +195,12 @@ const IncidentRow = React.memo(({
   incident,
   isSelected,
   onClick,
+  rowHeight,
 }: {
   incident:   Incident;
   isSelected: boolean;
   onClick:    () => void;
+  rowHeight: number;
 }) => {
   const lifecycleOpacity = incident.lifecycle === 'RESOLVED' ? 0.45 : 1;
   return (
@@ -203,7 +209,7 @@ const IncidentRow = React.memo(({
       onClick={onClick}
       style={{
         display: 'flex', alignItems: 'center', gap: 6,
-        padding: '0 10px', height: 40, minHeight: 40, flexShrink: 0,
+        padding: '8px 10px', minHeight: rowHeight, flexShrink: 0,
         borderBottom: '1px solid #151f2e',
         borderLeft: `2px solid ${SEV_BORDER[incident.severity]}`,
         background: isSelected ? '#1E3A5F' : 'transparent',
@@ -230,7 +236,7 @@ const IncidentRow = React.memo(({
       <span style={{
         fontFamily: 'Inter, monospace', fontSize: 13, fontWeight: 500,
         color: '#FFFFFF', flex: 1, overflow: 'hidden', paddingLeft: 8,
-        textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+        whiteSpace: 'normal', lineHeight: '18px',
       }}>
         {incident.title}
       </span>
@@ -270,6 +276,7 @@ export default function IncidentBoard() {
   const selectedId      = useUIStore((s) => s.selectedIncidentId);
   const setSelectedId   = useUIStore((s) => s.setSelectedIncidentId);
   const setHighlighted  = useUIStore((s) => s.setHighlightedSystems);
+  const [listRef, listWidth] = useDebouncedElementWidth<HTMLDivElement>(90);
 
   // Noise reduction: collapse LOW priority unless toggled
   const incidents = useMemo(
@@ -278,6 +285,22 @@ export default function IncidentBoard() {
   );
 
   const lowCount = useMemo(() => allIncidents.filter((i) => i.priority_label === 'LOW').length, [allIncidents]);
+  const incidentTitleWidth = Math.max(listWidth - 360, 180);
+  const incidentRowHeights = useMemo(
+    () => incidents.reduce<Record<string, number>>((acc, incident) => {
+      if (!ENABLE_PRETEXT_OPTIMIZATION) {
+        acc[incident.incident_id] = INCIDENT_ROW_MIN_HEIGHT;
+        return acc;
+      }
+      const measured = measureText(incident.title, incidentTitleWidth, {
+        font: INCIDENT_TITLE_FONT,
+        lineHeight: INCIDENT_TITLE_LINE_HEIGHT,
+      });
+      acc[incident.incident_id] = Math.max(INCIDENT_ROW_MIN_HEIGHT, measured.height + 16);
+      return acc;
+    }, {}),
+    [incidentTitleWidth, incidents],
+  );
 
   const handleClick = useCallback((incident: Incident) => {
     const newId = selectedId === incident.incident_id ? null : incident.incident_id;
@@ -351,7 +374,7 @@ export default function IncidentBoard() {
       </div>
 
       {/* Incident rows */}
-      <div style={{ flex: 1, overflowY: 'auto' }}>
+      <div ref={listRef} style={{ flex: 1, overflowY: 'auto' }}>
         {incidents.length === 0 ? (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 4 }}>
             <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 10, color: '#22C55E' }}>● NO ACTIVE INCIDENTS</span>
@@ -364,6 +387,7 @@ export default function IncidentBoard() {
                 incident={incident}
                 isSelected={selectedId === incident.incident_id}
                 onClick={() => handleClick(incident)}
+                rowHeight={incidentRowHeights[incident.incident_id] ?? INCIDENT_ROW_MIN_HEIGHT}
               />
               {selectedId === incident.incident_id && selectedIncident && (
                 <>

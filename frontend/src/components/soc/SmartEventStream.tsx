@@ -8,13 +8,14 @@
  *  - Click selects incident via uiStore
  *  - No animations longer than 150ms
  */
-import { useRef, useMemo, useCallback, useState, memo } from 'react';
+import { useMemo, useCallback, useState, memo } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useSignalStore } from '../../store/signalStore';
 import { useUIStore } from '../../store/uiStore';
 import type { GroupedSignal } from '../../store/signalStore';
 import type { Severity } from '../../types/telemetry';
 import { getTransportStatusLabel } from '../../lib/api';
+import { ENABLE_PRETEXT_OPTIMIZATION, measureText, useDebouncedElementWidth } from '../../utils/textLayout';
 
 const SEV_BORDER: Record<Severity, string> = {
   CRITICAL: 'soc-border-critical',
@@ -31,6 +32,9 @@ const SEV_TEXT: Record<Severity, string> = {
 };
 
 const ROW_HEIGHT = 40;
+const ROW_PADDING_Y = 10;
+const SIGNAL_FONT = '11px JetBrains Mono';
+const SIGNAL_LINE_HEIGHT = 16;
 
 const SignalRow = memo(({ signal, isSelected, onClick }: {
   signal: GroupedSignal;
@@ -45,7 +49,7 @@ const SignalRow = memo(({ signal, isSelected, onClick }: {
       className={`soc-signal-row ${SEV_BORDER[signal.severity]} ${isSelected ? 'bg-[#1E3A5F]' : ''}`}
       style={{ paddingLeft: 8, paddingRight: 6, opacity: isSelected || isRecent ? 1 : 0.65 }}
     >
-      <span className={`font-mono text-[11px] font-medium flex-1 truncate ${SEV_TEXT[signal.severity]}`}>
+      <span className={`font-mono text-[11px] font-medium flex-1 ${SEV_TEXT[signal.severity]}`} style={{ whiteSpace: 'normal', lineHeight: '16px' }}>
         {signal.fault_type}
       </span>
 
@@ -76,13 +80,25 @@ export default function SmartEventStream() {
     [allSignals, showNoise],
   );
   const hiddenCount = allSignals.length - signals.length;
-  const parentRef = useRef<HTMLDivElement>(null);
+  const [parentRef, parentWidth] = useDebouncedElementWidth<HTMLDivElement>(90);
   const transportLabel = getTransportStatusLabel(isConnected);
+  const contentWidth = Math.max(parentWidth - 110, 120);
+  const rowHeights = useMemo(
+    () => signals.map((signal) => {
+      if (!ENABLE_PRETEXT_OPTIMIZATION) return ROW_HEIGHT;
+      const measured = measureText(signal.fault_type, contentWidth, {
+        font: SIGNAL_FONT,
+        lineHeight: SIGNAL_LINE_HEIGHT,
+      });
+      return Math.max(ROW_HEIGHT, measured.height + ROW_PADDING_Y * 2);
+    }),
+    [contentWidth, signals],
+  );
 
   const virtualizer = useVirtualizer({
     count: signals.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => ROW_HEIGHT,
+    estimateSize: (index) => rowHeights[index] ?? ROW_HEIGHT,
     overscan: 10,
   });
 
@@ -147,7 +163,7 @@ export default function SmartEventStream() {
                     top: item.start,
                     left: 0,
                     right: 0,
-                    height: ROW_HEIGHT,
+                    height: item.size,
                   }}
                 >
                   <SignalRow

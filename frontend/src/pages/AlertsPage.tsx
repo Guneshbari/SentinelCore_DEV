@@ -8,6 +8,7 @@ import { Check, ArrowUpRight, Plus, X } from 'lucide-react';
 import { useDashboardStore } from '../store/dashboardStore';
 import { alertAction, createAlertRule } from '../lib/api';
 import type { Alert, Severity } from '../types/telemetry';
+import { ENABLE_PRETEXT_OPTIMIZATION, measureText, useDebouncedElementWidth } from '../utils/textLayout';
 
 const SEV_COLORS: Record<Severity, string> = {
   CRITICAL: '#FF3B3B',
@@ -28,6 +29,9 @@ function timeAgo(ts: string): string {
 
 type Tab = 'active' | 'acknowledged';
 type SortKey = 'severity' | 'age' | 'system';
+const ALERT_ROW_MIN_HEIGHT = 36;
+const ALERT_TITLE_FONT = '11px Inter';
+const ALERT_TITLE_LINE_HEIGHT = 16;
 
 export default function AlertsPage() {
   const filteredAlerts = useDashboardStore((s) => s.filteredAlerts);
@@ -38,6 +42,7 @@ export default function AlertsPage() {
   const [selectedId, setSelectedId]   = useState<string | null>(null);
   const [toast, setToast]             = useState<{ msg: string; ok: boolean } | null>(null);
   const [showAddRule, setShowAddRule] = useState(false);
+  const [listRef, listWidth] = useDebouncedElementWidth<HTMLDivElement>(90);
   const [ruleForm, setRuleForm]       = useState({
     name: '',
     condition: '',
@@ -73,6 +78,22 @@ export default function AlertsPage() {
       return sortDesc ? -cmp : cmp;
     });
   }, [mergedAlerts, tab, sortKey, sortDesc]);
+  const alertTitleWidth = Math.max(listWidth - 440, 140);
+  const alertRowHeights = useMemo(
+    () => displayed.reduce<Record<string, number>>((acc, alert) => {
+      if (!ENABLE_PRETEXT_OPTIMIZATION) {
+        acc[alert.alert_id] = ALERT_ROW_MIN_HEIGHT;
+        return acc;
+      }
+      const measured = measureText(alert.title, alertTitleWidth, {
+        font: ALERT_TITLE_FONT,
+        lineHeight: ALERT_TITLE_LINE_HEIGHT,
+      });
+      acc[alert.alert_id] = Math.max(ALERT_ROW_MIN_HEIGHT, measured.height + 16);
+      return acc;
+    }, {}),
+    [alertTitleWidth, displayed],
+  );
 
   const toggleSort = useCallback((key: SortKey) => {
     if (sortKey === key) setSortDesc((d) => !d);
@@ -250,7 +271,7 @@ export default function AlertsPage() {
       </div>
 
       {/* Alert rows */}
-      <div className="flex-1 overflow-y-auto border border-[#1E293B]">
+      <div ref={listRef} className="flex-1 overflow-y-auto border border-[#1E293B]">
         {displayed.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full gap-1">
             <span className="font-mono text-[10px] text-[#22C55E]">● ALL CLEAR</span>
@@ -270,7 +291,7 @@ export default function AlertsPage() {
                     alert.severity === 'ERROR' ? 'bg-[#2A1A0F]' :
                     'hover:bg-[#162131] even:bg-[#0F1720]'
                   }`}
-                  style={{ height: 36, borderLeftColor: sevColor }}
+                  style={{ minHeight: alertRowHeights[alert.alert_id] ?? ALERT_ROW_MIN_HEIGHT, borderLeftColor: sevColor }}
                 >
                   {/* Severity badge */}
                   <span
@@ -289,7 +310,7 @@ export default function AlertsPage() {
                   </span>
 
                   {/* Title */}
-                  <span className="font-mono text-[11px] text-[#E6EDF3] flex-1 truncate font-medium">
+                  <span className="font-mono text-[11px] text-[#E6EDF3] flex-1 font-medium" style={{ whiteSpace: 'normal', lineHeight: '16px' }}>
                     {alert.title}
                   </span>
 
