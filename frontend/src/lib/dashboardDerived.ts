@@ -88,7 +88,7 @@ export function deriveFilteredEvents(
     const eventTime = new Date(e.event_time).getTime();
     if (eventTime < limitMs) return false;
 
-    if (selectedSystems.length > 0 && !selectedSystems.includes(e.hostname)) return false;
+    if (selectedSystems.length > 0 && !selectedSystems.includes(e.system_id) && !selectedSystems.includes(e.hostname)) return false;
     if (selectedSeverities.length > 0 && !selectedSeverities.includes(e.severity)) return false;
     if (selectedFaultTypes.length > 0 && !selectedFaultTypes.includes(e.fault_type)) return false;
 
@@ -186,7 +186,7 @@ export function deriveFilteredAlerts(
     const alertTime = new Date(a.triggered_at).getTime();
     if (a.acknowledged && alertTime < limitMs) return false;
 
-    if (selectedSystems.length > 0 && !selectedSystems.includes(a.hostname)) return false;
+    if (selectedSystems.length > 0 && !selectedSystems.includes(a.system_id) && !selectedSystems.includes(a.hostname)) return false;
     if (selectedSeverities.length > 0 && !selectedSeverities.includes(a.severity)) return false;
     
     if (term) {
@@ -223,7 +223,7 @@ export function deriveFilteredSystems(
   const term = searchQuery.toLowerCase();
   
   return systems.filter((s) => {
-    if (selectedSystems.length > 0 && !selectedSystems.includes(s.hostname)) return false;
+    if (selectedSystems.length > 0 && !selectedSystems.includes(s.system_id) && !selectedSystems.includes(s.hostname)) return false;
     if (term) {
       if (
         !s.hostname.toLowerCase().includes(term) &&

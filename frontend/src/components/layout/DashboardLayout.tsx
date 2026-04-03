@@ -20,6 +20,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useDashboardStore } from '../../store/dashboardStore';
 import { useSignalStore } from '../../store/signalStore';
 import { DASHBOARD_DATA_MODE, getTransportStatusLabel, USE_MOCK_DATA } from '../../lib/api';
+import { disconnectWebSocket, initWebSocket } from '../../lib/websocket';
 
 const NAV_ITEMS = [
   { to: '/', icon: LayoutDashboard, label: 'Overview' },
@@ -44,6 +45,11 @@ export default function DashboardLayout() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  useEffect(() => {
+    initWebSocket();
+    return () => disconnectWebSocket();
+  }, []);
 
   useEffect(() => {
     if (!autoRefresh || autoRefresh === 'off') return;

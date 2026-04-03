@@ -11,6 +11,7 @@ Hardening:
   - New: /live-status        (lightweight heartbeat-only ping)
 """
 
+import asyncio
 import json
 import hashlib
 import logging
@@ -22,7 +23,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
 from urllib import error as urllib_error, request as urllib_request
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, JSONResponse
 from pydantic import BaseModel
@@ -493,6 +494,29 @@ def _iso(val: Any) -> Any:
     return val.isoformat() if isinstance(val, datetime) else val
 
 
+def _format_event_row(row: Dict[str, Any], include_raw_xml: bool = False) -> Dict[str, Any]:
+    """Normalize an event row into the frontend event shape."""
+    row["cpu_usage_percent"] = _f(row.get("cpu_usage_percent"))
+    row["memory_usage_percent"] = _f(row.get("memory_usage_percent"))
+    row["disk_free_percent"] = _f(row.get("disk_free_percent"))
+    row["confidence_score"] = _f(row.get("confidence_score"), 0.20)
+    row["event_message"] = row.get("event_message") or ""
+    row["parsed_message"] = row.get("parsed_message") or ""
+    row["normalized_message"] = row.get("normalized_message") or ""
+    row["fault_subtype"] = row.get("fault_subtype") or ""
+    row["event_record_id"] = row["id"]
+    row["hostname"] = row.get("hostname") or row.get("system_id", "")
+    row["event_time"] = _iso(row.get("ingested_at"))
+    diag, desc = _parse_diag(row.get("diagnostic_context"))
+    if diag is not None:
+        row["diagnostic_context"] = diag
+    row["fault_description"] = desc or row.get("parsed_message") or row.get("event_message") or row.get("fault_type") or ""
+    row["ingested_at"] = _iso(row.get("ingested_at"))
+    if not include_raw_xml:
+        row.pop("raw_xml", None)
+    return row
+
+
 def _format_alert_row(row: Dict[str, Any], index: int = 0) -> Dict[str, Any]:
     """Convert DB alert rows into the frontend alert shape."""
     metadata = row.get("metadata")
@@ -915,8 +939,19 @@ def get_events(
             params.append(fault_type)
         if search:
             search_term = f"%{search}%"
-            conditions.append(pgsql.SQL("(fault_type ILIKE %s OR system_id ILIKE %s OR provider_name ILIKE %s OR fault_description ILIKE %s)"))
-            params.extend([search_term, search_term, search_term, search_term])
+            conditions.append(pgsql.SQL("""
+                (
+                    fault_type ILIKE %s OR
+                    system_id ILIKE %s OR
+                    COALESCE(hostname, '') ILIKE %s OR
+                    provider_name ILIKE %s OR
+                    COALESCE(event_message, '') ILIKE %s OR
+                    COALESCE(parsed_message, '') ILIKE %s OR
+                    COALESCE(normalized_message, '') ILIKE %s OR
+                    COALESCE(CAST(diagnostic_context AS TEXT), '') ILIKE %s
+                )
+            """))
+            params.extend([search_term] * 8)
             
         where_clause = pgsql.SQL("")
         if conditions:
@@ -939,25 +974,7 @@ def get_events(
 
         rows = _exec_query(query, tuple(params), endpoint="/events")
 
-        for row in rows:
-            row["cpu_usage_percent"]    = _f(row.get("cpu_usage_percent"))
-            row["memory_usage_percent"] = _f(row.get("memory_usage_percent"))
-            row["disk_free_percent"]    = _f(row.get("disk_free_percent"))
-            row["confidence_score"]     = _f(row.get("confidence_score"), 0.20)
-            row["event_message"]        = row.get("event_message") or ""
-            row["parsed_message"]       = row.get("parsed_message") or ""
-            row["normalized_message"]   = row.get("normalized_message") or ""
-            row["fault_subtype"]        = row.get("fault_subtype") or ""
-            row["event_record_id"]      = row["id"]
-            row["hostname"]             = row.get("system_id", "")
-            row["event_time"]           = _iso(row.get("ingested_at"))
-            diag, desc = _parse_diag(row.get("diagnostic_context"))
-            if diag is not None:
-                row["diagnostic_context"] = diag
-            row["fault_description"] = desc
-            row["ingested_at"] = _iso(row.get("ingested_at"))
-            if not include_raw_xml:
-                row.pop("raw_xml", None)
+        rows = [_format_event_row(row, include_raw_xml=include_raw_xml) for row in rows]
 
         _log_req("/events", (time.time() - t0) * 1000, "ok", len(rows))
         return rows
@@ -967,6 +984,67 @@ def get_events(
         _log_failure("/events", "endpoint", exc)
         _log_req("/events", (time.time() - t0) * 1000, "error")
         return []
+
+
+@app.websocket("/ws/events")
+async def stream_events(websocket: WebSocket) -> None:
+    """Best-effort live event stream used by the dashboard for incremental updates."""
+    await websocket.accept()
+    last_event_id = 0
+
+    try:
+        bootstrap_rows = _exec_query(
+            """
+            SELECT id, system_id,
+                   COALESCE(NULLIF(hostname, ''), system_id) AS hostname,
+                   fault_type, severity, provider_name, event_id,
+                   cpu_usage_percent, memory_usage_percent, disk_free_percent,
+                   event_hash, diagnostic_context, raw_xml, ingested_at,
+                   event_message, parsed_message, normalized_message,
+                   fault_subtype, confidence_score
+            FROM events
+            ORDER BY id DESC
+            LIMIT 50
+            """,
+            endpoint="/ws/events/bootstrap",
+        )
+        if bootstrap_rows:
+            bootstrap_rows.reverse()
+            last_event_id = max(_i(row.get("id")) for row in bootstrap_rows)
+            await websocket.send_json([_format_event_row(dict(row), include_raw_xml=False) for row in bootstrap_rows])
+
+        while True:
+            rows = _exec_query(
+                """
+                SELECT id, system_id,
+                       COALESCE(NULLIF(hostname, ''), system_id) AS hostname,
+                       fault_type, severity, provider_name, event_id,
+                       cpu_usage_percent, memory_usage_percent, disk_free_percent,
+                       event_hash, diagnostic_context, raw_xml, ingested_at,
+                       event_message, parsed_message, normalized_message,
+                       fault_subtype, confidence_score
+                FROM events
+                WHERE id > %s
+                ORDER BY id ASC
+                LIMIT 250
+                """,
+                (last_event_id,),
+                endpoint="/ws/events/poll",
+            )
+
+            if rows:
+                last_event_id = max(_i(row.get("id")) for row in rows)
+                await websocket.send_json([_format_event_row(dict(row), include_raw_xml=False) for row in rows])
+
+            await asyncio.sleep(1.0)
+    except WebSocketDisconnect:
+        return
+    except Exception as exc:
+        _log_failure("/ws/events", "websocket", exc)
+        try:
+            await websocket.close(code=1011)
+        except Exception:
+            pass
 
 
 @app.get("/systems")

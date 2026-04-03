@@ -87,7 +87,7 @@ KAFKA_BOOTSTRAP_SERVERS = (
     os.getenv("SENTINEL_KAFKA_BROKERS")
     or os.getenv("SENTINEL_KAFKA_HOST")
     or os.getenv("KAFKA_BOOTSTRAP")
-    or "kafka:9092"
+    or "localhost:9092"
 )
 KAFKA_TOPIC = os.getenv("SENTINEL_KAFKA_TOPIC", "sentinel-events")
 KAFKA_GROUP_ID = os.getenv("SENTINEL_KAFKA_GROUP_ID", "postgres-ingester-group")

@@ -126,6 +126,18 @@ async function fetchJSON<T>(
   return res.json();
 }
 
+async function fetchMutationJSON<T>(input: RequestInfo | URL, init: RequestInit): Promise<T> {
+  const res = await fetch(input, init);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || (typeof data === 'object' && data !== null && 'success' in data && data.success === false)) {
+    const message = typeof data === 'object' && data !== null && 'error' in data
+      ? String(data.error)
+      : `API error ${res.status}: ${res.statusText}`;
+    throw new Error(message);
+  }
+  return data as T;
+}
+
 // ── Core data fetchers ──────────────────────────────────
 
 interface FetchEventsOptions {
@@ -287,23 +299,21 @@ export async function checkAPIHealth(): Promise<boolean> {
 export async function registerSystem(hostname: string, ipAddress: string, agentKey: string): Promise<{ success: boolean; system_id?: string }> {
   if (USE_MOCK_DATA) return { success: true, system_id: 'mock-sys-' + Math.floor(Math.random() * 1000) };
   const headers = await buildHeaders();
-  const res = await fetch(buildEndpoint('/systems/register'), {
+  return fetchMutationJSON<{ success: boolean; system_id?: string }>(buildEndpoint('/systems/register'), {
     method: 'POST',
     headers: { ...headers, 'Content-Type': 'application/json' },
     body: JSON.stringify({ hostname, ip_address: ipAddress, agent_key: agentKey }),
   });
-  return res.json();
 }
 
 export async function executeSystemCommand(systemId: string, command: string): Promise<{ success: boolean; output: string }> {
   if (USE_MOCK_DATA) return { success: true, output: `[MOCK] Command '${command}' queued for node ${systemId}.` };
   const headers = await buildHeaders();
-  const res = await fetch(buildEndpoint('/systems/command'), {
+  return fetchMutationJSON<{ success: boolean; output: string }>(buildEndpoint('/systems/command'), {
     method: 'POST',
     headers: { ...headers, 'Content-Type': 'application/json' },
     body: JSON.stringify({ system_id: systemId, command }),
   });
-  return res.json();
 }
 
 export async function alertAction(
@@ -312,13 +322,11 @@ export async function alertAction(
 ): Promise<{ success: boolean }> {
   if (USE_MOCK_DATA) return { success: true };
   const headers = await buildHeaders();
-  const res = await fetch(buildEndpoint(`/alerts/${action}`), {
+  return fetchMutationJSON<{ success: boolean }>(buildEndpoint(`/alerts/${action}`), {
     method: 'POST',
     headers: { ...headers, 'Content-Type': 'application/json' },
     body: JSON.stringify({ alert_id: alertId }),
   });
-  const data = await res.json().catch(() => ({ success: false }));
-  return data;
 }
 
 export async function createAlertRule(
@@ -331,7 +339,7 @@ export async function createAlertRule(
 ): Promise<{ success: boolean }> {
   if (USE_MOCK_DATA) return { success: true };
   const headers = await buildHeaders();
-  const res = await fetch(buildEndpoint('/alerts/rules'), {
+  return fetchMutationJSON<{ success: boolean }>(buildEndpoint('/alerts/rules'), {
     method: 'POST',
     headers: { ...headers, 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -343,7 +351,6 @@ export async function createAlertRule(
       escalation_target: escalationTarget?.trim() || undefined,
     }),
   });
-  return res.json();
 }
 
 /**

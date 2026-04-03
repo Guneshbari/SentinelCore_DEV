@@ -79,6 +79,7 @@ export default function RemediationControls({ incident }: { incident: Incident }
     setHookStatus(hookId, { status: 'running' });
 
     const result = await executeRemediation(
+      incident.systems[0] ?? '',
       hookId,
       cooldownMapRef.current,
       inFlightSetRef.current,
