@@ -29,7 +29,7 @@ _SRC_DIR      = os.path.join(_PROJECT_ROOT, "src")
 if _SRC_DIR not in sys.path:
     sys.path.insert(0, _SRC_DIR)
 
-import shared_constants as SC
+import shared.db_constants as SC
 import importlib.util as _ilu
 
 def _load(name, path):
@@ -88,9 +88,9 @@ class TestScalabilityConstants(unittest.TestCase):
         import os
         with patch.dict(os.environ, {"SENTINEL_DB_PASSWORD": "env_secret"}):
             import importlib
-            import shared_constants as SC2
+            import shared.db_constants as SC2
             importlib.reload(SC2)
-            self.assertEqual(SC2.DB_CONFIG["password"], "env_secret")
+            self.assertEqual(SC2.get_db_config()["password"], "env_secret")
 
 
 # =============================================================================

@@ -6,7 +6,7 @@ import logging
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from typing import Any, Callable, Tuple
 
-from shared_constants import DB_QUERY_TIMEOUT_SECONDS
+from shared.resilience_constants import DB_QUERY_TIMEOUT_SECONDS
 
 logger = logging.getLogger("sentinel_utils.timeout")
 

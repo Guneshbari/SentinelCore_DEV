@@ -19,7 +19,7 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import psycopg2.extras
 
-from shared_constants import (
+from shared.ml_constants import (
     FEATURE_BUILDER_BATCH_TIMEOUT_SECS,
     FEATURE_BUILDER_HARD_TIMEOUT_SECS,
     FEATURE_BUILDER_INTERVAL_SECS,

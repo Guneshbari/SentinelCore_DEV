@@ -6,7 +6,7 @@ import logging
 import time
 from typing import Any, Callable, Tuple
 
-from shared_constants import RETRY_BACKOFF_SECONDS, RETRY_MAX_ATTEMPTS
+from shared.resilience_constants import RETRY_BACKOFF_SECONDS, RETRY_MAX_ATTEMPTS
 
 logger = logging.getLogger("sentinel_utils.retry")
 

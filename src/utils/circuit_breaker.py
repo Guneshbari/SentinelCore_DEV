@@ -6,7 +6,7 @@ import logging
 import threading
 import time
 
-from shared_constants import CIRCUIT_BREAKER_RESET_SECS, CIRCUIT_BREAKER_THRESHOLD
+from shared.resilience_constants import CIRCUIT_BREAKER_RESET_SECS, CIRCUIT_BREAKER_THRESHOLD
 
 logger = logging.getLogger("sentinel_utils.circuit_breaker")
 

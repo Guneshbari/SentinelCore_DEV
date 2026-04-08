@@ -39,21 +39,27 @@ try:
 except ImportError:
     _FIREBASE_ADMIN_AVAILABLE = False
 
-from shared_constants import (
-    DB_CONFIG,
-    FIREBASE_AUTH_ENABLED,
+from shared.resilience_constants import (
     API_RESPONSE_TIMEOUT_SECONDS,
+    DB_QUERY_TIMEOUT_SECONDS,
+)
+from shared.api_constants import (
+    FIREBASE_AUTH_ENABLED,
     API_CACHE_TTL_SECONDS,
     API_CORS_ALLOWED_ORIGINS,
     API_MAX_EVENTS_LIMIT,
-    DB_QUERY_TIMEOUT_SECONDS,
-    DB_POOL_MIN_CONN,
-    DB_POOL_MAX_CONN,
     ALERT_ACK_COOLDOWN_MINUTES,
     ALERT_ESCALATION_TIMEOUT_SECONDS,
     ALERT_ESCALATION_WEBHOOK_URL,
     ALERT_RULE_LOOKBACK_MINUTES,
 )
+from shared.db_constants import (
+    get_db_config,
+    DB_POOL_MIN_CONN,
+    DB_POOL_MAX_CONN,
+)
+
+_DB_CONFIG = get_db_config()
 from sentinel_utils import (
     retry_with_backoff,
     timeout_wrapper,
@@ -342,7 +348,7 @@ def _get_pool() -> psycopg2.pool.ThreadedConnectionPool:
                 _pool = psycopg2.pool.ThreadedConnectionPool(
                     minconn=DB_POOL_MIN_CONN,
                     maxconn=DB_POOL_MAX_CONN,
-                    **DB_CONFIG,
+                    **_DB_CONFIG,
                 )
     return _pool
 
@@ -902,7 +908,7 @@ def _log_security_posture() -> None:
     if API_CORS_ALLOWED_ORIGINS == ["*"]:
         _log_failure("/startup", "security_posture", "wildcard_cors_origins_enabled")
 
-    if DB_CONFIG.get("password", "") in ("", "changeme123"):
+    if _DB_CONFIG.get("password", "") in ("", "changeme123"):
         _log_failure("/startup", "security_posture", "weak_or_default_database_password_in_use")
 
     if not FIREBASE_AUTH_ENABLED:

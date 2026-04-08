@@ -26,7 +26,8 @@ from typing import List, Dict, Optional, Tuple, cast
 # regardless of the working directory the IDE uses as project root.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from shared_constants import LEVEL_NAMES, CPU_ALERT_THRESHOLD, MEMORY_ALERT_THRESHOLD, DISK_LOW_THRESHOLD
+from shared.system_constants import LEVEL_NAMES
+from shared.ml_constants import CPU_ALERT_THRESHOLD, MEMORY_ALERT_THRESHOLD, DISK_LOW_THRESHOLD
 
 # ============================================================================
 # CONSTANTS

@@ -1,0 +1,15 @@
+import os
+from shared.system_constants import env_int, env_bool
+
+COLLECTOR_BASE_BATCH_SIZE = env_int("SENTINEL_COLLECTOR_BATCH_SIZE", 20)
+COLLECTOR_MAX_BATCH_SIZE = env_int("SENTINEL_COLLECTOR_MAX_BATCH_SIZE", 100)
+COLLECTOR_INTERVAL_SECONDS = env_int("SENTINEL_COLLECTION_INTERVAL_SECONDS", 30)
+COLLECTOR_DYNAMIC_BATCHING_ENABLED = env_bool("SENTINEL_COLLECTOR_DYNAMIC_BATCHING_ENABLED", True)
+
+_COLLECTOR_SECRET_RAW = os.getenv("SENTINEL_COLLECTOR_SECRET", "")
+if not _COLLECTOR_SECRET_RAW:
+    raise RuntimeError(
+        "[FATAL] SENTINEL_COLLECTOR_SECRET environment variable is not set. "
+        "Generate a strong secret with: openssl rand -hex 32"
+    )
+COLLECTOR_SECRET: str = _COLLECTOR_SECRET_RAW

@@ -54,7 +54,12 @@ PROJECT       = os.path.join(_PROJECT_ROOT, "src")
 if PROJECT not in sys.path:
     sys.path.insert(0, PROJECT)
 
-import shared_constants as SC
+from shared import system_constants as SC_sys
+from shared import ml_constants as SC_ml
+from shared import resilience_constants as SC_res
+from shared import db_constants as SC_db
+from shared import api_constants as SC_api
+
 import sentinel_utils as SU
 import analyzer as AZ
 
@@ -120,62 +125,62 @@ class TestSharedConstants(unittest.TestCase):
 
     def test_level_names_all_five_present(self):
         for lvl in (1, 2, 3, 4, 5):
-            self.assertIn(lvl, SC.LEVEL_NAMES, f"Level {lvl} missing")
+            self.assertIn(lvl, SC_sys.LEVEL_NAMES, f"Level {lvl} missing")
 
     def test_level_names_exact_strings(self):
-        self.assertEqual(SC.LEVEL_NAMES[1], "CRITICAL")
-        self.assertEqual(SC.LEVEL_NAMES[2], "ERROR")
-        self.assertEqual(SC.LEVEL_NAMES[3], "WARNING")
-        self.assertEqual(SC.LEVEL_NAMES[4], "INFO")
-        self.assertEqual(SC.LEVEL_NAMES[5], "VERBOSE")
+        self.assertEqual(SC_sys.LEVEL_NAMES[1], "CRITICAL")
+        self.assertEqual(SC_sys.LEVEL_NAMES[2], "ERROR")
+        self.assertEqual(SC_sys.LEVEL_NAMES[3], "WARNING")
+        self.assertEqual(SC_sys.LEVEL_NAMES[4], "INFO")
+        self.assertEqual(SC_sys.LEVEL_NAMES[5], "VERBOSE")
 
     def test_resource_thresholds_positive(self):
-        for name, val in [("CPU", SC.CPU_ALERT_THRESHOLD),
-                          ("MEM", SC.MEMORY_ALERT_THRESHOLD),
-                          ("DISK", SC.DISK_LOW_THRESHOLD)]:
+        for name, val in [("CPU", SC_ml.CPU_ALERT_THRESHOLD),
+                          ("MEM", SC_ml.MEMORY_ALERT_THRESHOLD),
+                          ("DISK", SC_ml.DISK_LOW_THRESHOLD)]:
             self.assertGreater(val, 0, f"{name} threshold must be positive")
 
     def test_resource_thresholds_valid_percent(self):
-        for v in (SC.CPU_ALERT_THRESHOLD, SC.MEMORY_ALERT_THRESHOLD, SC.DISK_LOW_THRESHOLD):
+        for v in (SC_ml.CPU_ALERT_THRESHOLD, SC_ml.MEMORY_ALERT_THRESHOLD, SC_ml.DISK_LOW_THRESHOLD):
             self.assertGreater(v, 0)
             self.assertLessEqual(v, 100)
 
     def test_retry_max_attempts_int_gte_1(self):
-        self.assertIsInstance(SC.RETRY_MAX_ATTEMPTS, int)
-        self.assertGreaterEqual(SC.RETRY_MAX_ATTEMPTS, 1)
+        self.assertIsInstance(SC_res.RETRY_MAX_ATTEMPTS, int)
+        self.assertGreaterEqual(SC_res.RETRY_MAX_ATTEMPTS, 1)
 
     def test_retry_backoff_positive_float(self):
-        self.assertIsInstance(SC.RETRY_BACKOFF_SECONDS, float)
-        self.assertGreater(SC.RETRY_BACKOFF_SECONDS, 0)
+        self.assertIsInstance(SC_res.RETRY_BACKOFF_SECONDS, float)
+        self.assertGreater(SC_res.RETRY_BACKOFF_SECONDS, 0)
 
     def test_db_query_timeout_positive(self):
-        self.assertGreater(SC.DB_QUERY_TIMEOUT_SECONDS, 0)
+        self.assertGreater(SC_res.DB_QUERY_TIMEOUT_SECONDS, 0)
 
     def test_api_response_timeout_positive(self):
-        self.assertGreater(SC.API_RESPONSE_TIMEOUT_SECONDS, 0)
+        self.assertGreater(SC_res.API_RESPONSE_TIMEOUT_SECONDS, 0)
 
     def test_circuit_breaker_threshold_gte_1(self):
-        self.assertGreaterEqual(SC.CIRCUIT_BREAKER_THRESHOLD, 1)
+        self.assertGreaterEqual(SC_res.CIRCUIT_BREAKER_THRESHOLD, 1)
 
     def test_circuit_breaker_reset_positive(self):
-        self.assertGreater(SC.CIRCUIT_BREAKER_RESET_SECS, 0)
+        self.assertGreater(SC_res.CIRCUIT_BREAKER_RESET_SECS, 0)
 
     def test_db_config_required_keys(self):
         for key in ("dbname", "user", "password", "host", "port"):
-            self.assertIn(key, SC.DB_CONFIG, f"DB_CONFIG missing '{key}'")
+            self.assertIn(key, SC_db.get_db_config(), f"DB_CONFIG missing '{key}'")
 
     def test_db_config_port_integer(self):
-        self.assertIsInstance(SC.DB_CONFIG["port"], int)
+        self.assertIsInstance(SC_db.get_db_config()["port"], int)
 
     def test_db_config_has_connect_timeout(self):
-        self.assertIn("connect_timeout", SC.DB_CONFIG)
+        self.assertIn("connect_timeout", SC_db.get_db_config())
 
     def test_db_config_options_contains_statement_timeout(self):
-        self.assertIn("statement_timeout", SC.DB_CONFIG.get("options", ""))
+        self.assertIn("statement_timeout", SC_db.get_db_config().get("options", ""))
 
     def test_db_config_statement_timeout_matches_query_timeout(self):
-        options = SC.DB_CONFIG.get("options", "")
-        expected = str(SC.DB_QUERY_TIMEOUT_SECONDS * 1000)
+        options = SC_db.get_db_config().get("options", "")
+        expected = str(SC_res.DB_QUERY_TIMEOUT_SECONDS * 1000)
         self.assertIn(expected, options)
 
 
@@ -495,7 +500,7 @@ class TestMakeDbConnection(unittest.TestCase):
         mock_conn = MagicMock()
         with patch("psycopg2.connect", return_value=mock_conn) as mc:
             result = SU.make_db_connection()
-        mc.assert_called_once_with(**SC.DB_CONFIG)
+        mc.assert_called_once_with(**SC_db.get_db_config())
         self.assertIs(result, mock_conn)
 
     def test_raises_when_connection_fails(self):
@@ -736,29 +741,29 @@ class TestGenerateResourceAlerts(unittest.TestCase):
         self.assertEqual(AZ.generate_resource_alerts([_event(cpu=50, mem=50, disk=50)]), [])
 
     def test_high_cpu_triggers_alert(self):
-        alerts = AZ.generate_resource_alerts([_event(cpu=SC.CPU_ALERT_THRESHOLD + 1)])
+        alerts = AZ.generate_resource_alerts([_event(cpu=SC_ml.CPU_ALERT_THRESHOLD + 1)])
         self.assertIn("HIGH_CPU", [a["type"] for a in alerts])
 
     def test_high_memory_triggers_alert(self):
-        alerts = AZ.generate_resource_alerts([_event(mem=SC.MEMORY_ALERT_THRESHOLD + 1)])
+        alerts = AZ.generate_resource_alerts([_event(mem=SC_ml.MEMORY_ALERT_THRESHOLD + 1)])
         self.assertIn("HIGH_MEMORY", [a["type"] for a in alerts])
 
     def test_low_disk_triggers_critical_alert(self):
-        alerts = AZ.generate_resource_alerts([_event(disk=SC.DISK_LOW_THRESHOLD - 1)])
+        alerts = AZ.generate_resource_alerts([_event(disk=SC_ml.DISK_LOW_THRESHOLD - 1)])
         types = [a["type"] for a in alerts]
         self.assertIn("LOW_DISK", types)
         low = next(a for a in alerts if a["type"] == "LOW_DISK")
         self.assertEqual(low["severity"], "CRITICAL")
 
     def test_all_three_alerts_fire_simultaneously(self):
-        ev = _event(cpu=SC.CPU_ALERT_THRESHOLD + 1,
-                    mem=SC.MEMORY_ALERT_THRESHOLD + 1,
-                    disk=SC.DISK_LOW_THRESHOLD - 1)
+        ev = _event(cpu=SC_ml.CPU_ALERT_THRESHOLD + 1,
+                    mem=SC_ml.MEMORY_ALERT_THRESHOLD + 1,
+                    disk=SC_ml.DISK_LOW_THRESHOLD - 1)
         self.assertEqual(len(AZ.generate_resource_alerts([ev])), 3)
 
     def test_exactly_at_threshold_does_not_trigger(self):
         """Threshold is strictly greater-than / less-than."""
-        ev     = _event(cpu=float(SC.CPU_ALERT_THRESHOLD))
+        ev     = _event(cpu=float(SC_ml.CPU_ALERT_THRESHOLD))
         alerts = AZ.generate_resource_alerts([ev])
         self.assertNotIn("HIGH_CPU", [a["type"] for a in alerts])
 
@@ -1317,21 +1322,21 @@ class TestBuildDiagnosticContext(unittest.TestCase):
         self.assertEqual(ctx["resource_alerts"], [])
 
     def test_high_cpu_generates_alert(self):
-        ctx = _col.build_diagnostic_context({"cpu_usage_percent":    SC.CPU_ALERT_THRESHOLD + 1,
+        ctx = _col.build_diagnostic_context({"cpu_usage_percent":    SC_ml.CPU_ALERT_THRESHOLD + 1,
                                               "memory_usage_percent": 50,
                                               "disk_free_percent":    50})
         self.assertTrue(any("CPU" in a for a in ctx["resource_alerts"]))
 
     def test_high_memory_generates_alert(self):
         ctx = _col.build_diagnostic_context({"cpu_usage_percent":    50,
-                                              "memory_usage_percent": SC.MEMORY_ALERT_THRESHOLD + 1,
+                                              "memory_usage_percent": SC_ml.MEMORY_ALERT_THRESHOLD + 1,
                                               "disk_free_percent":    50})
         self.assertTrue(any("MEMORY" in a for a in ctx["resource_alerts"]))
 
     def test_low_disk_generates_alert(self):
         ctx = _col.build_diagnostic_context({"cpu_usage_percent":    50,
                                               "memory_usage_percent": 50,
-                                              "disk_free_percent":    SC.DISK_LOW_THRESHOLD - 1})
+                                              "disk_free_percent":    SC_ml.DISK_LOW_THRESHOLD - 1})
         self.assertTrue(any("DISK" in a for a in ctx["resource_alerts"]))
 
     def test_output_contains_resource_state(self):
@@ -1543,13 +1548,13 @@ class TestBoundaryAndRegression(unittest.TestCase):
     # ── level names exhaustiveness ────────────────────────────────────────────
 
     def test_all_five_level_names_are_unique_strings(self):
-        values = list(SC.LEVEL_NAMES.values())
+        values = list(SC_sys.LEVEL_NAMES.values())
         self.assertEqual(len(values), len(set(values)), "Level names must all be unique")
 
     # ── resource alert count matches events ──────────────────────────────────
 
     def test_resource_alert_count_field_matches_triggering_events(self):
-        evs    = [_event(cpu=SC.CPU_ALERT_THRESHOLD + 1) for _ in range(7)]
+        evs    = [_event(cpu=SC_ml.CPU_ALERT_THRESHOLD + 1) for _ in range(7)]
         alerts = AZ.generate_resource_alerts(evs)
         cpu_alert = next(a for a in alerts if a["type"] == "HIGH_CPU")
         self.assertEqual(cpu_alert["count"], 7)

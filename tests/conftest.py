@@ -25,7 +25,7 @@ def restore_module_config_state():
     """
     yield
 
-    for module_name in ("shared_constants", "utils.db", "sentinel_utils"):
+    for module_name in ("shared.db_constants", "utils.db", "sentinel_utils"):
         module = sys.modules.get(module_name)
         if module is not None:
             importlib.reload(module)
