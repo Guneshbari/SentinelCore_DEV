@@ -14,6 +14,8 @@ import type {
   SystemFailureCount,
   MLPrediction,
   FeatureSnapshot,
+  MLAnomaly,
+  MLCluster,
 } from '../types/telemetry';
 import { auth } from './firebase';
 import * as mockApi from './mockApi';
@@ -265,7 +267,7 @@ export async function fetchPipelineHealth(): Promise<PipelineHealthData> {
   return fetchJSON<PipelineHealthData>('/pipeline-health');
 }
 
-// ── ML / Feature intelligence endpoints ─────────────────
+// ── ML / Feature intelligence endpoints ───────────────────────────
 
 export async function fetchMLPredictions(limit = 100): Promise<MLPrediction[]> {
   return fetchJSON<MLPrediction[]>('/ml/predictions', { limit });
@@ -278,8 +280,30 @@ export async function fetchFeatureSnapshots(systemId?: string, limit = 100): Pro
   });
 }
 
+/**
+ * Fetch latest anomaly predictions per system from /ml/anomalies (v2-isof).
+ * @param limit         Max systems to return (default 50).
+ * @param onlyAnomalies When true, only returns systems flagged as anomalous.
+ */
+export async function fetchMLAnomalies(limit = 50, onlyAnomalies = false): Promise<MLAnomaly[]> {
+  if (USE_MOCK_DATA) return [];
+  return fetchJSON<MLAnomaly[]>('/ml/anomalies', {
+    limit,
+    only_anomalies: onlyAnomalies ? 'true' : 'false',
+  });
+}
+
+/**
+ * Fetch latest KMeans cluster assignments per system from /ml/clusters.
+ * Only returns systems where cluster_id IS NOT NULL (i.e., scored by sklearn).
+ */
+export async function fetchMLClusters(limit = 50): Promise<MLCluster[]> {
+  if (USE_MOCK_DATA) return [];
+  return fetchJSON<MLCluster[]>('/ml/clusters', { limit });
+}
+
 // Re-export types for consumers
-export type { MLPrediction, FeatureSnapshot };
+export type { MLPrediction, FeatureSnapshot, MLAnomaly, MLCluster };
 
 // ── Health check ────────────────────────────────────────
 

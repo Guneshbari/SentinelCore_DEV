@@ -87,7 +87,7 @@ export interface SystemFailureCount {
   failure_count: number;
 }
 
-/** ML prediction record from /ml/predictions */
+/** ML prediction record from /ml/predictions (v1 legacy + v2 fields) */
 export interface MLPrediction {
   id?: number;
   system_id: string;
@@ -96,6 +96,37 @@ export interface MLPrediction {
   failure_probability: number;    // 0–1, > 0.6 = at risk
   predicted_fault: string;
   model_version?: string;
+  /** v2-isof fields — null when scored by heuristic fallback */
+  is_anomaly?: boolean | null;
+  cluster_id?: number | null;
+}
+
+/**
+ * Anomaly record from GET /ml/anomalies
+ * One row per system (DISTINCT ON system_id), most recent prediction.
+ */
+export interface MLAnomaly {
+  system_id: string;
+  prediction_time: string;
+  anomaly_score: number;           // 0–1
+  is_anomaly: boolean | null;
+  failure_probability: number;
+  predicted_fault: string;
+  model_version: string;
+  cluster_id: number | null;
+}
+
+/**
+ * Cluster record from GET /ml/clusters
+ * One row per system (DISTINCT ON system_id), cluster_id is always set.
+ */
+export interface MLCluster {
+  system_id: string;
+  prediction_time: string;
+  cluster_id: number;
+  anomaly_score: number;
+  is_anomaly: boolean | null;
+  model_version: string;
 }
 
 /** Feature snapshot record from /feature-snapshots */

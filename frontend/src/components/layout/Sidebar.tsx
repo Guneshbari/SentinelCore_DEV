@@ -6,6 +6,7 @@ import {
   AlertTriangle,
   BarChart3,
   Shield,
+  Brain,
 } from 'lucide-react';
 
 const navItems = [
@@ -14,6 +15,7 @@ const navItems = [
   { to: '/systems', icon: Server, label: 'Systems' },
   { to: '/alerts', icon: AlertTriangle, label: 'Alerts' },
   { to: '/analytics', icon: BarChart3, label: 'Analytics' },
+  { to: '/ml', icon: Brain, label: 'ML Intel' },
 ];
 
 export default function Sidebar() {

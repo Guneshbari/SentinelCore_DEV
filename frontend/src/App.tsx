@@ -7,6 +7,7 @@ import SystemsPage from './pages/SystemsPage';
 import AlertsPage from './pages/AlertsPage';
 import AnalyticsPage from './pages/AnalyticsPage';
 import LandingPage from './pages/LandingPage';
+import MLIntelligencePage from './pages/MLIntelligencePage';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuth();
@@ -58,6 +59,7 @@ export default function App() {
             <Route path="/systems" element={<SystemsPage />} />
             <Route path="/alerts" element={<AlertsPage />} />
             <Route path="/analytics" element={<AnalyticsPage />} />
+            <Route path="/ml" element={<MLIntelligencePage />} />
           </Route>
 
           {/* Catch-all */}
