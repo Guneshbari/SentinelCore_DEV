@@ -49,6 +49,10 @@ export function syncApiSessionAuth(isAuthenticated: boolean): void {
   apiSessionAuthenticated = isAuthenticated;
 }
 
+export function isApiSessionAuthenticated(): boolean {
+  return apiSessionAuthenticated;
+}
+
 export function getTransportStatusLabel(isConnected: boolean): 'LIVE' | 'MOCK' | 'OFFLINE' {
   if (USE_MOCK_DATA) {
     return 'MOCK';

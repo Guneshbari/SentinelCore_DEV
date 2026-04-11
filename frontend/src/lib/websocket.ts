@@ -9,7 +9,8 @@
  *  - USE_MOCK_DATA = true → WebSocket is stubbed (no connection attempt)
  */
 import { useSignalStore } from '../store/signalStore';
-import { USE_MOCK_DATA } from './api';
+import { isApiSessionAuthenticated, USE_MOCK_DATA } from './api';
+import { auth } from './firebase';
 import type { TelemetryEvent } from '../types/telemetry';
 
 const WS_URL             = (import.meta.env.VITE_SENTINEL_WS_URL ?? 'ws://localhost:8000/ws/events').trim();
@@ -29,11 +30,31 @@ class SentinelWebSocket {
     this.url = url;
   }
 
-  connect(): void {
+  async connect(): Promise<void> {
     if (this.stopped) return;
 
+    let connectionUrl = this.url;
+    if (isApiSessionAuthenticated()) {
+      const user = auth.currentUser;
+      if (!user) {
+        useSignalStore.getState().setConnected(false);
+        this.scheduleReconnect();
+        return;
+      }
+      try {
+        const wsUrl = new URL(this.url);
+        wsUrl.searchParams.set('token', await user.getIdToken());
+        connectionUrl = wsUrl.toString();
+      } catch (error) {
+        console.warn('SentinelCore websocket auth token unavailable:', error);
+        useSignalStore.getState().setConnected(false);
+        this.scheduleReconnect();
+        return;
+      }
+    }
+
     try {
-      this.ws = new WebSocket(this.url);
+      this.ws = new WebSocket(connectionUrl);
     } catch {
       // WebSocket constructor can throw if URL is invalid
       this.scheduleReconnect();
@@ -83,7 +104,9 @@ class SentinelWebSocket {
   private scheduleReconnect(): void {
     setTimeout(() => {
       this.retryDelay = Math.min(this.retryDelay * 2, MAX_RETRY_MS);
-      this.connect();
+      this.connect().catch((error) => {
+        console.warn('SentinelCore websocket reconnect failed:', error);
+      });
     }, this.retryDelay);
   }
 
@@ -109,7 +132,9 @@ export function initWebSocket(): void {
   }
   if (_client) return;
   _client = new SentinelWebSocket(WS_URL);
-  _client.connect();
+  _client.connect().catch((error) => {
+    console.warn('SentinelCore websocket startup failed:', error);
+  });
 }
 
 export function disconnectWebSocket(): void {
