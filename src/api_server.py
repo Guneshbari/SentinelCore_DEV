@@ -995,6 +995,32 @@ def get_events(
 @app.websocket("/ws/events")
 async def stream_events(websocket: WebSocket) -> None:
     """Best-effort live event stream used by the dashboard for incremental updates."""
+    if FIREBASE_AUTH_ENABLED:
+        id_token = websocket.query_params.get("token", "").strip()
+        if not id_token:
+            _log_failure("/ws/events", "auth", "missing_websocket_token")
+            await websocket.close(code=4401)
+            return
+        if not _FIREBASE_ADMIN_READY:
+            _log_failure("/ws/events", "auth", "firebase_sdk_not_ready")
+            await websocket.close(code=1013)
+            return
+        try:
+            decoded_token = firebase_auth.verify_id_token(id_token, check_revoked=True)
+            websocket.state.uid = decoded_token.get("uid", "unknown")
+        except firebase_auth.RevokedIdTokenError:
+            _log_failure("/ws/events", "auth", "revoked_token")
+            await websocket.close(code=4401)
+            return
+        except firebase_auth.ExpiredIdTokenError:
+            _log_failure("/ws/events", "auth", "expired_token")
+            await websocket.close(code=4401)
+            return
+        except Exception as exc:
+            _log_failure("/ws/events", "auth", str(exc))
+            await websocket.close(code=4401)
+            return
+
     await websocket.accept()
     last_event_id = 0
 
@@ -2403,4 +2429,3 @@ def get_ml_clusters(limit: int = 50) -> JSONResponse:
     except Exception as exc:
         _log_failure("/ml/clusters", "endpoint", exc)
         return JSONResponse(content={"error": str(exc)}, status_code=500)
-
