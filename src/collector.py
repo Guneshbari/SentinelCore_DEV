@@ -61,6 +61,12 @@ from shared.collector_constants import (
     COLLECTOR_SECRET,
     COLLECTOR_INTERVAL_SECONDS,
     COLLECTOR_MAX_BATCH_SIZE,
+    COLLECTOR_DELTA_CPU_THRESHOLD,
+    COLLECTOR_DELTA_MEM_THRESHOLD,
+    COLLECTOR_DELTA_DISK_THRESHOLD,
+    COLLECTOR_RESOURCE_EVENT_RATE_LIMIT_SECS,
+    COLLECTOR_SLEEP_ACTIVE_SECS,
+    COLLECTOR_SLEEP_IDLE_MAX_SECS,
 )
 from shared.ml_constants import (
     CPU_ALERT_THRESHOLD,
@@ -983,6 +989,70 @@ def resolve_output_strategy() -> OutputStrategy:
     return HttpsOutputStrategy()
 
 # ============================================================================
+# RESOURCE EVENT BUILDER
+# ============================================================================
+
+def _build_resource_event(
+    resources: Dict,
+    system_id: str,
+    hostname: str,
+    cpu_delta: float,
+    mem_delta: float,
+    disk_delta: float,
+) -> Dict:
+    """Build a synthetic RESOURCE_WARNING event for significant metric changes.
+
+    Hash is based on rounded metric values (not timestamp) so identical
+    readings within a rate-limit window produce the same hash and are
+    deduplicated by the existing seen_hashes ring buffer.
+    """
+    cpu  = resources['cpu_usage_percent']
+    mem  = resources['memory_usage_percent']
+    disk = resources['disk_free_percent']
+
+    msg = (
+        f"Resource change detected: "
+        f"CPU={cpu:.1f}% (Δ{cpu_delta:.1f}%) "
+        f"MEM={mem:.1f}% (Δ{mem_delta:.1f}%) "
+        f"DISK_FREE={disk:.1f}% (Δ{disk_delta:.1f}%)"
+    )
+
+    # Hash on rounded metric values — deduplicates identical readings
+    cpu_r, mem_r, disk_r = round(cpu, 1), round(mem, 1), round(disk, 1)
+    h = hashlib.sha256(
+        f"resource::{system_id}::{cpu_r}::{mem_r}::{disk_r}".encode('utf-8')
+    ).hexdigest()
+
+    return {
+        'log_channel':          'SentinelCore-Resource',
+        'event_record_id':      0,
+        'provider_name':        'SentinelCore-Agent',
+        'event_id':             9001,
+        'level':                3,   # WARNING
+        'task':                 0,
+        'opcode':               0,
+        'keywords':             '0x0',
+        'process_id':           os.getpid(),
+        'thread_id':            0,
+        'event_time':           datetime.now(timezone.utc).isoformat(),
+        'cpu_usage_percent':    cpu,
+        'memory_usage_percent': mem,
+        'disk_free_percent':    disk,
+        'event_hash':           h,
+        'fault_type':           'RESOURCE_WARNING',
+        'fault_description':    'Resource threshold change detected',
+        'severity':             'WARNING',
+        'message':              msg,
+        'created_at':           datetime.now(timezone.utc).isoformat(),
+        'diagnostic_context':   build_diagnostic_context(resources),
+        'raw_xml':              '',
+        'event_message':        msg,
+        'parsed_message':       _clean_message(msg),
+        'normalized_message':   _clean_message(msg).lower(),
+    }
+
+
+# ============================================================================
 # EVENT COLLECTION
 # ============================================================================
 
@@ -1076,8 +1146,11 @@ def run_collector():
     print("=" * 70)
     print("\nStarting collection... (Ctrl+C to stop)\n")
 
-    cycle_count = 0
-    _shutdown   = False
+    cycle_count             = 0
+    _shutdown               = False
+    _last_state: Dict       = {}     # {cpu, mem, disk} from previous cycle
+    _idle_cycles            = 0      # consecutive cycles with nothing sent
+    _last_resource_event_ts = 0.0   # epoch seconds of last synthetic event sent
 
     import signal as _signal
 
@@ -1178,39 +1251,102 @@ def run_collector():
 
                     channel_raw_events[channel] = raw_events
 
-                # ── Unified payload for the whole cycle ────────────────────────
-                uptime = get_uptime_seconds()
-                payload = {
-                    'system_id':           system_id,
-                    'hostname':            hostname,
-                    'boot_session_id':     boot_session,
-                    'os_version':          os_version,
-                    'uptime_seconds':      uptime,
-                    'collector_version':   COLLECTOR_VERSION,
-                    'timestamp_collected': datetime.now(timezone.utc).isoformat(),
-                    'system_info': {
-                        'system_id':            system_id,
-                        'hostname':             hostname,
-                        'ip_address':           ip_address,
-                        'agent_version':        AGENT_VERSION,
-                        'os_version':           os_version,
-                        'uptime_seconds':       uptime,
-                        'cpu_usage_percent':    resources.get('cpu_usage_percent', 0.0),
-                        'memory_usage_percent': resources.get('memory_usage_percent', 0.0),
-                        'disk_free_percent':    resources.get('disk_free_percent', 100.0),
-                    },
-                    'events': batch_events,
-                }
+                # ── Delta detection ────────────────────────────────────────────
+                # First cycle: initialise state, skip detection to avoid false spikes.
+                is_first_cycle = not _last_state
+                cpu_now  = resources['cpu_usage_percent']
+                mem_now  = resources['memory_usage_percent']
+                disk_now = resources['disk_free_percent']
 
-                if strategy.send(payload):
-                    events_sent = len(batch_events)
-                    for channel, raw_events in channel_raw_events.items():
-                        if raw_events:
-                            pending_checkpoints[channel] = max(
-                                e['metadata']['event_record_id'] for e in raw_events
-                            )
+                cpu_delta  = abs(cpu_now  - _last_state.get('cpu',  cpu_now))
+                mem_delta  = abs(mem_now  - _last_state.get('mem',  mem_now))
+                disk_delta = abs(disk_now - _last_state.get('disk', disk_now))
+
+                resource_changed = (
+                    not is_first_cycle and (
+                        cpu_delta  > COLLECTOR_DELTA_CPU_THRESHOLD  or
+                        mem_delta  > COLLECTOR_DELTA_MEM_THRESHOLD  or
+                        disk_delta > COLLECTOR_DELTA_DISK_THRESHOLD
+                    )
+                )
+
+                if resource_changed:
+                    logger.info(
+                        f"  [delta] CPU Δ{cpu_delta:.1f}%  "
+                        f"MEM Δ{mem_delta:.1f}%  "
+                        f"DISK Δ{disk_delta:.1f}%"
+                    )
+
+                # Synthetic RESOURCE_WARNING — only when:
+                #   • resource threshold crossed
+                #   • no real log events already in batch
+                #   • rate-limit window expired
+                now_ts = time.time()
+                rate_ok = (now_ts - _last_resource_event_ts) >= COLLECTOR_RESOURCE_EVENT_RATE_LIMIT_SECS
+
+                if resource_changed and not batch_events and rate_ok:
+                    res_evt = _build_resource_event(
+                        resources, system_id, hostname,
+                        cpu_delta, mem_delta, disk_delta,
+                    )
+                    evt_hash = res_evt['event_hash']
+                    if evt_hash not in seen_hashes:
+                        seen_hashes.append(evt_hash)
+                        batch_events.append(res_evt)
+                        _last_resource_event_ts = now_ts
+                        logger.info(
+                            f"  [synthetic] RESOURCE_WARNING generated "
+                            f"CPU={cpu_now:.1f}% MEM={mem_now:.1f}% DISK={disk_now:.1f}%"
+                        )
+                    else:
+                        logger.debug("  [synthetic] RESOURCE_WARNING deduplicated (same metric values)")
+
+                # Update last-seen state every cycle regardless of send
+                _last_state = {'cpu': cpu_now, 'mem': mem_now, 'disk': disk_now}
+
+                # ── Gate: only build and send payload when there is real data ──
+                if not batch_events:
+                    _idle_cycles += 1
+                    cycle_status = "idle_skip"
+                    logger.debug(
+                        f"[Cycle {cycle_count}] idle — no events, no delta. "
+                        f"Kafka send suppressed. idle_cycles={_idle_cycles}"
+                    )
                 else:
-                    cycle_status = "send_failed"
+                    # ── Unified payload for the whole cycle ────────────────────
+                    uptime = get_uptime_seconds()
+                    payload = {
+                        'system_id':           system_id,
+                        'hostname':            hostname,
+                        'boot_session_id':     boot_session,
+                        'os_version':          os_version,
+                        'uptime_seconds':      uptime,
+                        'collector_version':   COLLECTOR_VERSION,
+                        'timestamp_collected': datetime.now(timezone.utc).isoformat(),
+                        'system_info': {
+                            'system_id':            system_id,
+                            'hostname':             hostname,
+                            'ip_address':           ip_address,
+                            'agent_version':        AGENT_VERSION,
+                            'os_version':           os_version,
+                            'uptime_seconds':       uptime,
+                            'cpu_usage_percent':    resources.get('cpu_usage_percent', 0.0),
+                            'memory_usage_percent': resources.get('memory_usage_percent', 0.0),
+                            'disk_free_percent':    resources.get('disk_free_percent', 100.0),
+                        },
+                        'events': batch_events,
+                    }
+
+                    if strategy.send(payload):
+                        events_sent  = len(batch_events)
+                        _idle_cycles = 0   # reset backoff on successful send
+                        for channel, raw_events in channel_raw_events.items():
+                            if raw_events:
+                                pending_checkpoints[channel] = max(
+                                    e['metadata']['event_record_id'] for e in raw_events
+                                )
+                    else:
+                        cycle_status = "send_failed"
 
         except KeyboardInterrupt:
             logger.info("\n[graceful_shutdown] KeyboardInterrupt — stopping after checkpoint save")
@@ -1242,17 +1378,35 @@ def run_collector():
                     f"(threshold: {COLLECTION_INTERVAL_SECONDS * 2}s)"
                 )
 
+            # ── Adaptive sleep — gradual backoff during idle stretches ─────
+            # Formula: sleep = min(SLEEP_ACTIVE + idle_cycles * SLEEP_ACTIVE, SLEEP_IDLE_MAX)
+            # Resets to SLEEP_ACTIVE immediately when events are sent.
+            target_sleep = min(
+                COLLECTOR_SLEEP_ACTIVE_SECS + _idle_cycles * COLLECTOR_SLEEP_ACTIVE_SECS,
+                COLLECTOR_SLEEP_IDLE_MAX_SECS,
+            )
+            sleep_time = max(0.0, target_sleep - duration)
+
             # ── Structured cycle log ───────────────────────────────────────
             structured_log_cycle(
                 cycle=cycle_count,
                 duration=duration,
                 events_sent=events_sent,
                 status=cycle_status,
-                extras={"hostname": hostname, "system_id": system_id},
+                extras={
+                    "hostname":      hostname,
+                    "system_id":     system_id,
+                    "idle_cycles":   _idle_cycles,
+                    "sleep_next_s":  round(sleep_time, 1),
+                },
+            )
+            logger.info(
+                f"[Cycle {cycle_count}] done  "
+                f"status={cycle_status}  sent={events_sent}  "
+                f"idle={_idle_cycles}  sleep={sleep_time:.1f}s"
             )
 
-            sleep_time = max(0, COLLECTION_INTERVAL_SECONDS - duration)
-            if sleep_time and not _shutdown:
+            if sleep_time > 0 and not _shutdown:
                 time.sleep(sleep_time)
 
     # ── Graceful shutdown sequence ─────────────────────────────────────────

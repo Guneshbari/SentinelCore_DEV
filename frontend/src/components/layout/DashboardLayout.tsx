@@ -15,6 +15,7 @@ import {
   BarChart3,
   Shield,
   LogOut,
+  Brain,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useDashboardStore } from '../../store/dashboardStore';
@@ -29,6 +30,7 @@ const NAV_ITEMS = [
   { to: '/systems', icon: Server, label: 'Systems' },
   { to: '/alerts', icon: AlertTriangle, label: 'Alerts' },
   { to: '/analytics', icon: BarChart3, label: 'Analytics' },
+  { to: '/ml', icon: Brain, label: 'ML Intel' },
 ];
 
 export default function DashboardLayout() {

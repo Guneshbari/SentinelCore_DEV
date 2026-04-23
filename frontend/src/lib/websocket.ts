@@ -14,6 +14,16 @@ import { isApiSessionAuthenticated, USE_MOCK_DATA } from './api';
 import { auth } from './firebase';
 import type { TelemetryEvent } from '../types/telemetry';
 
+
+
+/** Guarantees every WS event has a non-null event_time. */
+function sanitizeTelemetryEvent(e: TelemetryEvent): TelemetryEvent {
+  return {
+    ...e,
+    event_time: e.event_time ?? e.ingested_at ?? new Date().toISOString(),
+  };
+}
+
 const WS_URL             = (import.meta.env.VITE_SENTINEL_WS_URL ?? 'ws://localhost:8000/ws/events').trim();
 const BATCH_INTERVAL_MS  = 300;
 const INITIAL_RETRY_MS   = 1_000;
@@ -74,9 +84,11 @@ class SentinelWebSocket {
         // ── Typed envelope (backend v2) ──────────────────────────────
         if (msg && typeof msg === 'object' && !Array.isArray(msg) && msg.type) {
           if (msg.type === 'event') {
-            const events: TelemetryEvent[] = Array.isArray(msg.data)
+            const raw: TelemetryEvent[] = Array.isArray(msg.data)
               ? (msg.data as TelemetryEvent[])
               : [msg.data as TelemetryEvent];
+            // Sanitize: guarantees event_time is never null/undefined
+            const events = raw.map(sanitizeTelemetryEvent);
             if (events.length > 0) {
               this.buffer.push(...events);
               this.scheduleFlush();
@@ -94,11 +106,10 @@ class SentinelWebSocket {
         }
 
         // ── Legacy: bare array (pre-typed backend) ───────────────────
-        if (Array.isArray(msg)) {
-          this.buffer.push(...(msg as TelemetryEvent[]));
-        } else {
-          this.buffer.push(msg as TelemetryEvent);
-        }
+        const legacyRaw: TelemetryEvent[] = Array.isArray(msg)
+          ? (msg as TelemetryEvent[])
+          : [msg as TelemetryEvent];
+        this.buffer.push(...legacyRaw.map(sanitizeTelemetryEvent));
         this.scheduleFlush();
       } catch {
         // Ignore malformed frames
@@ -137,6 +148,8 @@ class SentinelWebSocket {
 
   disconnect(): void {
     this.stopped = true;
+    // Stop the alive-check interval so it doesn't leak after disconnect
+    useHeartbeatStore.getState().stopAliveTimer();
     if (this.flushTimer !== null) {
       clearTimeout(this.flushTimer);
       this.flushTimer = null;

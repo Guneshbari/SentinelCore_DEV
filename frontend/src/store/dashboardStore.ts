@@ -258,9 +258,9 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
         partialUpdate.pipelineHealthError = pipeResult.reason instanceof Error ? pipeResult.reason.message : 'Unavailable';
       }
 
-      // Sync inner stores
-      const mlPreds = mlResult.status === 'fulfilled' ? mlResult.value : [];
-      const snaps   = featureResult.status === 'fulfilled' ? featureResult.value : [];
+      // Sync inner stores — preserve stale data when fetch fails
+      const mlPreds = mlResult.status === 'fulfilled' ? mlResult.value : null;
+      const snaps   = featureResult.status === 'fulfilled' ? featureResult.value : null;
       const evts    = partialUpdate.allEvents ?? s.allEvents;
 
       if (!partialUpdate.metrics || partialUpdate.metrics.length < 6) {
@@ -268,16 +268,20 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
       }
       
       useSignalStore.getState().setEvents(evts);
-      useSignalStore.getState().setMLPredictions(mlPreds);
-      useSignalStore.getState().setFeatureSnapshots(snaps);
+      if (mlPreds !== null) useSignalStore.getState().setMLPredictions(mlPreds);
+      if (snaps   !== null) useSignalStore.getState().setFeatureSnapshots(snaps);
+
+      // Resolve: fresh data if available, else current store state
+      const resolvedMlPreds = mlPreds ?? useSignalStore.getState().mlPredictions;
+      const resolvedSnaps   = snaps   ?? useSignalStore.getState().featureSnapshots;
 
       // Orchestrate order!
-      useForecastStore.getState().ingest(mlPreds, snaps);
+      useForecastStore.getState().ingest(resolvedMlPreds, resolvedSnaps);
       const signals = useSignalStore.getState().signals;
       const systemsList = partialUpdate.systems ?? s.systems;
       const avgCpu = systemsList.length > 0 ? systemsList.reduce((sum, sys) => sum + sys.cpu_usage_percent, 0) / systemsList.length : 0;
       
-      useIncidentStore.getState().deriveAll(signals, mlPreds, snaps, avgCpu);
+      useIncidentStore.getState().deriveAll(signals, resolvedMlPreds, resolvedSnaps, avgCpu);
 
       const alertsData = partialUpdate.alerts ?? s.alerts;
       const avgResolutionMsByRule = useFeedbackStore.getState().avgResolutionMsByRule;

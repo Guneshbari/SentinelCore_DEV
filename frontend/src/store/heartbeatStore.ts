@@ -1,14 +1,6 @@
-/**
- * heartbeatStore — Real-time system metrics from WS heartbeat frames
- *
- * Updated every ~1 second by the WebSocket transport layer.
- * Drives:
- *  - System stats bar (CPU / Memory / Disk)
- *  - Connection status indicator (green/red)
- *  - Idle banner ("System running normally. No new events.")
- */
 import { create } from 'zustand';
 
+/** Heartbeat frame payload received from /ws/events */
 export interface HeartbeatFrame {
   timestamp: string;
   cpu: number;
@@ -32,6 +24,8 @@ interface HeartbeatState {
   onHeartbeat:   (frame: HeartbeatFrame) => void;
   /** Called by websocket.ts whenever an event batch arrives */
   onEventReceived: () => void;
+  /** Called by websocket.ts on disconnect to stop the alive-check interval */
+  stopAliveTimer: () => void;
 }
 
 /** Show idle banner when no events for > 30 seconds */
@@ -55,6 +49,13 @@ export const useHeartbeatStore = create<HeartbeatState>((set, get) => {
     }, 1_000);
   }
 
+  function stopAliveTimer() {
+    if (_aliveTimer !== null) {
+      clearInterval(_aliveTimer);
+      _aliveTimer = null;
+    }
+  }
+
   return {
     latest:        null,
     lastHeartbeat: null,
@@ -76,5 +77,8 @@ export const useHeartbeatStore = create<HeartbeatState>((set, get) => {
       const now = Date.now();
       set({ lastEventTime: now, isIdle: false });
     },
+
+    stopAliveTimer,
   };
 });
+
