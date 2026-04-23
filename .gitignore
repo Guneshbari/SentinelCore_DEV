@@ -65,3 +65,5 @@ node_modules/
 GEMINI.md
 CLAUDE.md
 AGENTS.md
+.sentinel_id
+.sentinel_id.bak

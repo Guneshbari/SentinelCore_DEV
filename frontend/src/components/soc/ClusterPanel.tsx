@@ -27,7 +27,8 @@ const CLUSTER_COLORS = [
   '#F97316',  // 5 — orange
 ];
 
-function clusterColor(id: number): string {
+function clusterColor(id: number | null): string {
+  if (id === null) return '#64748b'; // slate-500
   return CLUSTER_COLORS[id % CLUSTER_COLORS.length];
 }
 
@@ -106,14 +107,18 @@ export default function ClusterPanel({
 }: ClusterPanelProps) {
   // Group systems by cluster_id
   const grouped = useMemo(() => {
-    const map = new Map<number, MLCluster[]>();
+    const map = new Map<number | null, MLCluster[]>();
     for (const row of clusters) {
       const id = row.cluster_id;
       if (!map.has(id)) map.set(id, []);
       map.get(id)!.push(row);
     }
-    // Sort clusters numerically
-    return [...map.entries()].sort(([a], [b]) => a - b);
+    // Sort clusters numerically, put null (Unclassified) at the bottom
+    return [...map.entries()].sort(([a], [b]) => {
+      if (a === null) return 1;
+      if (b === null) return -1;
+      return a - b;
+    });
   }, [clusters]);
 
   const totalSystems = clusters.length;
@@ -166,7 +171,7 @@ export default function ClusterPanel({
             });
 
             return (
-              <div key={clusterId}>
+              <div key={clusterId ?? 'unclassified'}>
                 {/* Cluster header row */}
                 <div
                   className="flex items-center gap-2 px-2"
@@ -182,7 +187,7 @@ export default function ClusterPanel({
                     className="font-mono text-[9px] font-bold uppercase tracking-wider"
                     style={{ color }}
                   >
-                    Cluster {clusterId}
+                    {clusterId === null ? 'UNCLASSIFIED' : `Cluster ${clusterId}`}
                   </span>
                   <span className="font-mono text-[9px]" style={{ color: 'var(--soc-text-muted)' }}>
                     {systems.length} system{systems.length !== 1 ? 's' : ''}

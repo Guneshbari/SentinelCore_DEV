@@ -937,7 +937,7 @@ def _log_security_posture() -> None:
     if API_CORS_ALLOWED_ORIGINS == ["*"]:
         _log_failure("/startup", "security_posture", "wildcard_cors_origins_enabled")
 
-    if __DB_CONFIG.get("password", "") in ("", "changeme123"):
+    if _DB_CONFIG.get("password", "") in ("", "changeme123"):
         _log_failure("/startup", "security_posture", "weak_or_default_database_password_in_use")
 
     if not FIREBASE_AUTH_ENABLED:
@@ -1734,7 +1734,7 @@ def get_metrics(
             elif wm <= 360:
                 bucket_trunc = "15 minutes"
             else:
-                bucket_trunc = "1 hour"
+                bucket_trunc = "hour"
 
             if start_time and end_time:
                 time_filter = pgsql.SQL("WHERE ingested_at >= %s AND ingested_at <= %s")
@@ -1943,7 +1943,7 @@ def get_system_failures(
             FROM events e
             LEFT JOIN system_heartbeats h ON h.system_id = e.system_id
             WHERE {conditions}
-            GROUP BY e.system_id, hostname
+            GROUP BY e.system_id, COALESCE(h.hostname, e.system_id)
             ORDER BY failure_count DESC, e.system_id
             LIMIT %s
         """).format(conditions=pgsql.SQL(" AND ").join(conditions))
@@ -2452,7 +2452,6 @@ def get_ml_clusters(limit: int = 50) -> JSONResponse:
                 is_anomaly,
                 model_version
             FROM ml_predictions
-            WHERE cluster_id IS NOT NULL
             ORDER BY system_id, prediction_time DESC
             LIMIT %s
             """,
