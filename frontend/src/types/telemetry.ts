@@ -148,3 +148,33 @@ export interface FeatureSnapshot {
   memory_usage_percent: number;
   disk_free_percent: number;
 }
+
+/**
+ * Failure risk record from GET /ml/failure-risk
+ * Per system — failure_probability 0–1.
+ */
+export interface MLFailureRisk {
+  system_id: string;
+  failure_probability: number; // 0–1
+  predicted_fault: string;
+  prediction_time: string;
+}
+
+/**
+ * Real-time system status from GET /live-status
+ * Sourced from system_heartbeats table (not events).
+ * Used ONLY for Topbar online count — do not mix with /systems data.
+ */
+export interface LiveStatusEntry {
+  system_id: string;
+  hostname: string;
+  online: boolean;
+  cpu_usage_percent: number;
+  memory_usage_percent: number;
+  disk_free_percent: number;
+  os_version: string;
+  agent_version: string;
+  ip_address: string;
+  uptime_seconds: number;
+  last_seen: string;
+}
