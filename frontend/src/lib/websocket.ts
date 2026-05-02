@@ -7,14 +7,29 @@
  *  - Disconnected gracefully — does NOT crash when backend is offline
  *  - Updates go direct into Zustand signalStore via batchPush()
  *  - USE_MOCK_DATA = true → WebSocket is stubbed (no connection attempt)
+ *  - WS state: 'connected' | 'reconnecting' | 'disconnected' | 'mock'
+ *  - Fallback polling: activates after 5s of WS reconnecting, stops on reconnect
  */
 import { useSignalStore } from '../store/signalStore';
 import { useHeartbeatStore } from '../store/heartbeatStore';
-import { isApiSessionAuthenticated, USE_MOCK_DATA } from './api';
+import { isApiSessionAuthenticated, USE_MOCK_DATA, fetchEvents, RECENT_EVENTS_LIMIT } from './api';
 import { auth } from './firebase';
 import type { FeatureSnapshot, TelemetryEvent } from '../types/telemetry';
 
+export type WebSocketState = 'connected' | 'reconnecting' | 'disconnected' | 'mock';
 
+let _currentWsState: WebSocketState = 'disconnected';
+
+function _setWsState(state: WebSocketState) {
+  _currentWsState = state;
+  // Notify dashboardStore subscribers via signalStore connected flag
+  useSignalStore.getState().setConnected(state === 'connected' || state === 'mock');
+}
+
+/** Get current WebSocket transport state for UI display. */
+export function getWebSocketState(): WebSocketState {
+  return _currentWsState;
+}
 
 /** Guarantees every WS event has a non-null event_time. */
 function sanitizeTelemetryEvent(e: TelemetryEvent): TelemetryEvent {
@@ -28,14 +43,21 @@ const WS_URL             = (import.meta.env.VITE_SENTINEL_WS_URL ?? 'ws://localh
 const BATCH_INTERVAL_MS  = 300;
 const INITIAL_RETRY_MS   = 1_000;
 const MAX_RETRY_MS       = 30_000;
+/** Time to wait before activating fallback REST polling when WS is down. */
+const FALLBACK_DELAY_MS  = 5_000;
+/** Polling interval when fallback REST mode is active. */
+const FALLBACK_POLL_MS   = 5_000;
 
 class SentinelWebSocket {
-  private ws:           WebSocket | null = null;
-  private buffer:       TelemetryEvent[] = [];
-  private flushTimer:   ReturnType<typeof setTimeout> | null = null;
-  private retryDelay:   number = INITIAL_RETRY_MS;
-  private stopped:      boolean = false;
-  private url:          string;
+  private ws:               WebSocket | null = null;
+  private buffer:           TelemetryEvent[] = [];
+  private flushTimer:       ReturnType<typeof setTimeout> | null = null;
+  private retryDelay:       number = INITIAL_RETRY_MS;
+  private retryCount:       number = 0;
+  private stopped:          boolean = false;
+  private url:              string;
+  private fallbackTimer:    ReturnType<typeof setTimeout> | null = null;
+  private fallbackInterval: ReturnType<typeof setInterval> | null = null;
 
   constructor(url: string) {
     this.url = url;
@@ -48,8 +70,10 @@ class SentinelWebSocket {
     if (isApiSessionAuthenticated()) {
       const user = auth.currentUser;
       if (!user) {
-        useSignalStore.getState().setConnected(false);
-        this.scheduleReconnect();
+        _setWsState('reconnecting');
+        this.retryCount++;
+        this._scheduleReconnect();
+        this._scheduleFallback();
         return;
       }
       try {
@@ -58,8 +82,10 @@ class SentinelWebSocket {
         connectionUrl = wsUrl.toString();
       } catch (error) {
         console.warn('SentinelCore websocket auth token unavailable:', error);
-        useSignalStore.getState().setConnected(false);
-        this.scheduleReconnect();
+        _setWsState('reconnecting');
+        this.retryCount++;
+        this._scheduleReconnect();
+        this._scheduleFallback();
         return;
       }
     }
@@ -68,13 +94,18 @@ class SentinelWebSocket {
       this.ws = new WebSocket(connectionUrl);
     } catch {
       // WebSocket constructor can throw if URL is invalid
-      this.scheduleReconnect();
+      _setWsState('reconnecting');
+      this.retryCount++;
+      this._scheduleReconnect();
+      this._scheduleFallback();
       return;
     }
 
     this.ws.onopen = () => {
       this.retryDelay = INITIAL_RETRY_MS;
-      useSignalStore.getState().setConnected(true);
+      this.retryCount = 0;
+      this._stopFallback();
+      _setWsState('connected');
     };
 
     this.ws.onmessage = (ev: MessageEvent) => {
@@ -87,11 +118,10 @@ class SentinelWebSocket {
             const raw: TelemetryEvent[] = Array.isArray(msg.data)
               ? (msg.data as TelemetryEvent[])
               : [msg.data as TelemetryEvent];
-            // Sanitize: guarantees event_time is never null/undefined
             const events = raw.map(sanitizeTelemetryEvent);
             if (events.length > 0) {
               this.buffer.push(...events);
-              this.scheduleFlush();
+              this._scheduleFlush();
               useHeartbeatStore.getState().onEventReceived();
             }
           } else if (msg.type === 'feature_snapshot' || msg.type === 'feature_snapshots') {
@@ -115,23 +145,30 @@ class SentinelWebSocket {
           ? (msg as TelemetryEvent[])
           : [msg as TelemetryEvent];
         this.buffer.push(...legacyRaw.map(sanitizeTelemetryEvent));
-        this.scheduleFlush();
+        this._scheduleFlush();
       } catch {
         // Ignore malformed frames
       }
     };
 
     this.ws.onerror = () => {
-      useSignalStore.getState().setConnected(false);
+      _setWsState('reconnecting');
+      this.retryCount++;
     };
 
     this.ws.onclose = () => {
-      useSignalStore.getState().setConnected(false);
-      if (!this.stopped) this.scheduleReconnect();
+      if (!this.stopped) {
+        _setWsState('reconnecting');
+        this.retryCount++;
+        this._scheduleReconnect();
+        this._scheduleFallback();
+      } else {
+        _setWsState('disconnected');
+      }
     };
   }
 
-  private scheduleFlush(): void {
+  private _scheduleFlush(): void {
     if (this.flushTimer !== null) return;
     this.flushTimer = setTimeout(() => {
       this.flushTimer = null;
@@ -142,7 +179,7 @@ class SentinelWebSocket {
     }, BATCH_INTERVAL_MS);
   }
 
-  private scheduleReconnect(): void {
+  private _scheduleReconnect(): void {
     setTimeout(() => {
       this.retryDelay = Math.min(this.retryDelay * 2, MAX_RETRY_MS);
       this.connect().catch((error) => {
@@ -151,9 +188,52 @@ class SentinelWebSocket {
     }, this.retryDelay);
   }
 
+  /**
+   * Schedule fallback REST polling after FALLBACK_DELAY_MS.
+   * Only starts if not already in fallback mode.
+   * Polls /events every FALLBACK_POLL_MS and pushes to signalStore.
+   */
+  private _scheduleFallback(): void {
+    if (this.fallbackTimer !== null || this.fallbackInterval !== null) return;
+    this.fallbackTimer = setTimeout(() => {
+      this.fallbackTimer = null;
+      // Only start if still disconnected (not reconnected in the meantime)
+      if (_currentWsState !== 'connected' && !this.stopped) {
+        console.info('SentinelCore: WS down — switching to REST polling fallback');
+        this.fallbackInterval = setInterval(async () => {
+          if (_currentWsState === 'connected' || this.stopped) {
+            this._stopFallback();
+            return;
+          }
+          try {
+            const events = await fetchEvents(RECENT_EVENTS_LIMIT);
+            if (events.length > 0) {
+              useSignalStore.getState().batchPush(events);
+            }
+          } catch {
+            // Ignore fallback poll errors — WS reconnect will recover
+          }
+        }, FALLBACK_POLL_MS);
+      }
+    }, FALLBACK_DELAY_MS);
+  }
+
+  private _stopFallback(): void {
+    if (this.fallbackTimer !== null) {
+      clearTimeout(this.fallbackTimer);
+      this.fallbackTimer = null;
+    }
+    if (this.fallbackInterval !== null) {
+      clearInterval(this.fallbackInterval);
+      this.fallbackInterval = null;
+      console.info('SentinelCore: WS reconnected — stopping REST polling fallback');
+    }
+  }
+
   disconnect(): void {
     this.stopped = true;
-    // Stop the alive-check interval so it doesn't leak after disconnect
+    _setWsState('disconnected');
+    this._stopFallback();
     useHeartbeatStore.getState().stopAliveTimer();
     if (this.flushTimer !== null) {
       clearTimeout(this.flushTimer);
@@ -169,8 +249,7 @@ let _client: SentinelWebSocket | null = null;
 /** Call once at app startup (after signal store is ready) */
 export function initWebSocket(): void {
   if (USE_MOCK_DATA) {
-    // In mock mode, mark as "connected" so the UI doesn't show an error dot
-    setTimeout(() => useSignalStore.getState().setConnected(true), 500);
+    _setWsState('mock');
     return;
   }
   if (_client) return;

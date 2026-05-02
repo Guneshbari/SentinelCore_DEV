@@ -17,9 +17,10 @@ interface KpiItem {
 }
 
 export default function KpiStrip() {
-  const systems = useDashboardStore((s) => s.systems);
+  const systems        = useDashboardStore((s) => s.systems);
   const filteredAlerts = useDashboardStore((s) => s.filteredAlerts);
   const pipelineHealth = useDashboardStore((s) => s.pipelineHealth);
+  const systemMetrics  = useDashboardStore((s) => s.systemMetrics);
   const isConnected    = useSignalStore((s) => s.isConnected);
   const signalCount    = useSignalStore((s) => s.signals.length);
   const incidentCount  = useIncidentStore((s) => s.incidents.length);
@@ -35,6 +36,14 @@ export default function KpiStrip() {
     const latency  = pipelineHealth?.avg_latency_ms ?? 0;
     const transport = getTransportStatusLabel(isConnected);
 
+    // System resource averages — show '—' when not yet loaded (default 0)
+    const cpuPct  = systemMetrics.avg_cpu;
+    const memPct  = systemMetrics.avg_memory;
+    const diskUsedPct = systemMetrics.avg_disk > 0 ? 100 - systemMetrics.avg_disk : 0;
+    const cpuColor  = cpuPct  > 85 ? '#DC2626' : cpuPct  > 65 ? '#F97316' : '#22C55E';
+    const memColor  = memPct  > 85 ? '#DC2626' : memPct  > 65 ? '#F97316' : '#22C55E';
+    const diskColor = diskUsedPct > 85 ? '#DC2626' : diskUsedPct > 65 ? '#F97316' : '#22C55E';
+
     return [
       { label: 'SYSTEMS',   value: `${online}/${systems.length}`,  color: online < systems.length ? '#F97316' : '#22C55E' },
       { label: 'DEGRADED',  value: degraded, color: degraded > 0 ? '#F97316' : '#475569' },
@@ -43,11 +52,14 @@ export default function KpiStrip() {
       { label: 'ML-RISK',   value: mlIncidents, color: mlIncidents > 0 ? '#A855F7' : '#475569' },
       { label: 'ALERTS',    value: active,   color: active   > 0 ? '#F97316' : '#22C55E' },
       { label: 'SIGNALS',   value: signalCount, color: '#94A3B8' },
+      { label: 'AVG CPU',   value: cpuPct  > 0 ? `${cpuPct.toFixed(1)}%`  : '—', color: cpuPct  > 0 ? cpuColor  : '#475569' },
+      { label: 'AVG MEM',   value: memPct  > 0 ? `${memPct.toFixed(1)}%`  : '—', color: memPct  > 0 ? memColor  : '#475569' },
+      { label: 'DISK USED', value: diskUsedPct > 0 ? `${diskUsedPct.toFixed(1)}%` : '—', color: diskUsedPct > 0 ? diskColor : '#475569' },
       { label: 'EPS',       value: eps.toFixed(1), color: '#38BDF8' },
       { label: 'LATENCY',   value: latency > 0 ? `${latency}ms` : '—', color: latency > 200 ? '#F97316' : '#94A3B8' },
       { label: 'TRANSPORT', value: transport, color: transport === 'LIVE' ? '#22C55E' : transport === 'MOCK' ? '#FACC15' : '#F97316' },
     ];
-  }, [systems, filteredAlerts, pipelineHealth, signalCount, isConnected, incidentCount, critIncidents, mlIncidents]);
+  }, [systems, filteredAlerts, pipelineHealth, systemMetrics, signalCount, isConnected, incidentCount, critIncidents, mlIncidents]);
 
   return (
     <div

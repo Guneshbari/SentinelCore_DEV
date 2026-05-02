@@ -2312,6 +2312,14 @@ def get_ml_predictions(limit: int = 100) -> JSONResponse:
 
 @app.get("/ml/anomaly")
 def get_anomaly_scores(limit: int = 1000) -> JSONResponse:
+    """
+    DEPRECATED — use /ml/anomalies instead.
+
+    /ml/anomalies returns DISTINCT ON system_id (latest prediction per system),
+    is_anomaly flag, cluster_id, and full failure_probability.
+    This endpoint returns raw rows without deduplication and is retained only
+    for backwards compatibility. It will be removed in a future release.
+    """
     t0 = time.time()
     try:
         rows = _exec_query("""

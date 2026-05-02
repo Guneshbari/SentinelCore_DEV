@@ -1,73 +1,138 @@
-import { useState, useRef, useEffect } from 'react';
-import { Bell, Clock, RefreshCw, ChevronDown, Server, Activity, AlertTriangle, Zap, LogOut } from 'lucide-react';
+import { useState, useRef, useEffect, useCallback } from 'react';
+import { Bell, Clock, RefreshCw, ChevronDown, Server, Activity, AlertTriangle, Zap, LogOut, Radio } from 'lucide-react';
 import {
   getOnlineSystems,
   getDegradedSystems,
   getCriticalAlertCount,
   getTotalEventCount,
 } from '../../data/mockData';
-import { fetchPipelineHealth, fetchRecentAlerts } from '../../lib/api';
+import {
+  fetchPipelineHealthStatus,
+  fetchLiveStatus,
+  fetchRecentAlerts,
+  type PipelineStatus,
+} from '../../lib/api';
 import type { Alert } from '../../types/telemetry';
 import { TIME_RANGE_LABELS, REFRESH_LABELS, type TimeRange, type AutoRefresh } from '../../lib/dashboardDerived';
 import { useDashboardStore } from '../../store/dashboardStore';
 import { useAuth } from '../../context/AuthContext';
+import type { WebSocketState } from '../../lib/websocket';
 
 const TIME_RANGES: TimeRange[] = ['5m', '15m', '1h', '6h', '24h'];
 const REFRESH_OPTIONS: AutoRefresh[] = ['off', '5s', '10s', '30s', '1m'];
 
+/** Status dot for pipeline and WS indicators */
+function StatusDot({ color, pulse = false }: { color: string; pulse?: boolean }) {
+  return (
+    <span
+      className={`inline-block w-2 h-2 rounded-full flex-shrink-0${pulse ? ' animate-pulse' : ''}`}
+      style={{ background: color }}
+    />
+  );
+}
+
+const PIPELINE_COLOR: Record<string, string> = {
+  OK:       '#22C55E',
+  DEGRADED: '#F97316',
+  DOWN:     '#DC2626',
+};
+
+const WS_COLOR: Record<WebSocketState, string> = {
+  connected:    '#22C55E',
+  reconnecting: '#F97316',
+  disconnected: '#DC2626',
+  mock:         '#94A3B8',
+};
+
+const WS_LABEL: Record<WebSocketState, string> = {
+  connected:    'WS LIVE',
+  reconnecting: 'Reconnecting…',
+  disconnected: 'WS DOWN',
+  mock:         'MOCK',
+};
+
 export default function Topbar() {
-  const systems = useDashboardStore((s) => s.systems);
-  const alerts = useDashboardStore((s) => s.alerts);
-  const allEvents = useDashboardStore((s) => s.allEvents);
-  const timeRange = useDashboardStore((s) => s.timeRange);
+  const systems    = useDashboardStore((s) => s.systems);
+  const alerts     = useDashboardStore((s) => s.alerts);
+  const allEvents  = useDashboardStore((s) => s.allEvents);
+  const liveStatus = useDashboardStore((s) => s.liveStatus);
+  const wsStatus   = useDashboardStore((s) => s.wsStatus);
+  const timeRange    = useDashboardStore((s) => s.timeRange);
   const setTimeRange = useDashboardStore((s) => s.setTimeRange);
-  const autoRefresh = useDashboardStore((s) => s.autoRefresh);
+  const autoRefresh    = useDashboardStore((s) => s.autoRefresh);
   const setAutoRefresh = useDashboardStore((s) => s.setAutoRefresh);
-  const online = getOnlineSystems(systems);
+  const syncWsStatus   = useDashboardStore((s) => s.syncWsStatus);
+
+  // Derive online count: prefer live-status heartbeat, fallback to events-based systems
+  const online   = liveStatus.length > 0
+    ? liveStatus.filter((s) => s.online).length
+    : getOnlineSystems(systems);
   const degraded = getDegradedSystems(systems);
-  const criticals = getCriticalAlertCount(alerts);
+  const criticals  = getCriticalAlertCount(alerts);
   const totalEvents = getTotalEventCount(allEvents);
   const { user, logout } = useAuth();
 
-  const [showTimeDropdown, setShowTimeDropdown] = useState(false);
+  const [showTimeDropdown, setShowTimeDropdown]     = useState(false);
   const [showRefreshDropdown, setShowRefreshDropdown] = useState(false);
-  const [showUserDropdown, setShowUserDropdown] = useState(false);
+  const [showUserDropdown, setShowUserDropdown]     = useState(false);
   const [showAlertsDropdown, setShowAlertsDropdown] = useState(false);
-  const [pipelineStatus, setPipelineStatus] = useState<{ status: string; delay_seconds: number }>({ status: 'OK', delay_seconds: 0 });
-  const timeRef = useRef<HTMLDivElement>(null);
-  const refreshRef = useRef<HTMLDivElement>(null);
-  const userRef = useRef<HTMLDivElement>(null);
+  const [pipelineStatus, setPipelineStatus] = useState<PipelineStatus>({ status: 'OK', delay_seconds: 0 });
+  const [recentAlerts, setRecentAlerts]     = useState<Alert[]>([]);
+
+  const timeRef         = useRef<HTMLDivElement>(null);
+  const refreshRef      = useRef<HTMLDivElement>(null);
+  const userRef         = useRef<HTMLDivElement>(null);
   const notificationRef = useRef<HTMLDivElement>(null);
-  const [recentAlerts, setRecentAlerts] = useState<Alert[]>([]);
 
-  useEffect(() => {
-    const fetchHealthAndAlerts = async () => {
-      try {
-        const data = await fetchPipelineHealth();
-        setPipelineStatus({
-          status: data.lag_status || 'OK',
-          delay_seconds: data.kafka_lag || 0,
-        });
-      } catch {
-        setPipelineStatus({ status: 'DOWN', delay_seconds: 999 });
-      }
-
-      try {
-        const fetchAlertData = await fetchRecentAlerts();
-        setRecentAlerts(fetchAlertData);
-      } catch {
-        setRecentAlerts([]);
-      }
-    };
-    fetchHealthAndAlerts();
-    const interval = setInterval(fetchHealthAndAlerts, 10000);
-    return () => clearInterval(interval);
+  const fetchHealth = useCallback(async () => {
+    try {
+      // Lightweight endpoint — /pipeline-health/status instead of full /pipeline-health
+      const data = await fetchPipelineHealthStatus();
+      setPipelineStatus(data);
+    } catch {
+      // Preserve last known state — don't reset to DOWN immediately on transient failure
+    }
   }, []);
 
-  // Get user initials
-  const initials = user?.name
-    ? user.name.split(' ').map((w) => w[0]).join('').toUpperCase().slice(0, 2)
-    : 'U';
+  const fetchAlerts = useCallback(async () => {
+    try {
+      const data = await fetchRecentAlerts();
+      setRecentAlerts(data);
+    } catch {
+      setRecentAlerts([]);
+    }
+  }, []);
+
+  const fetchLive = useCallback(async () => {
+    try {
+      const data = await fetchLiveStatus();
+      // Update dashboardStore liveStatus so KpiStrip also benefits
+      useDashboardStore.setState({ liveStatus: data });
+    } catch {
+      // Ignore — liveStatus stays stale from last load
+    }
+  }, []);
+
+  useEffect(() => {
+    // Initial fetch
+    fetchHealth();
+    fetchAlerts();
+    fetchLive();
+    syncWsStatus();
+
+    // Polling: pipeline at 10s, live-status at 15s, WS sync at 5s
+    const pipelineInterval  = setInterval(fetchHealth,    10_000);
+    const alertsInterval    = setInterval(fetchAlerts,    30_000);
+    const liveInterval      = setInterval(fetchLive,      15_000);
+    const wsInterval        = setInterval(syncWsStatus,    5_000);
+
+    return () => {
+      clearInterval(pipelineInterval);
+      clearInterval(alertsInterval);
+      clearInterval(liveInterval);
+      clearInterval(wsInterval);
+    };
+  }, [fetchHealth, fetchAlerts, fetchLive, syncWsStatus]);
 
   // Close dropdowns on outside click
   useEffect(() => {
@@ -81,11 +146,16 @@ export default function Topbar() {
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
+  // Get user initials
+  const initials = user?.name
+    ? user.name.split(' ').map((w) => w[0]).join('').toUpperCase().slice(0, 2)
+    : 'U';
+
   return (
     <header className="fixed top-0 left-[220px] right-0 h-[48px] bg-bg-surface border-b border-border flex items-center justify-between px-5 z-40">
       {/* Status Summary Strip */}
       <div className="flex items-center gap-4">
-        {/* Systems Online */}
+        {/* Systems Online — from live-status heartbeat */}
         <div className="flex items-center gap-1.5">
           <Server className="w-3.5 h-3.5 text-signal-highlight" />
           <span className="text-xs font-semibold text-signal-highlight">{online}</span>
@@ -121,14 +191,28 @@ export default function Topbar() {
 
         <span className="w-px h-4 bg-border" />
 
-        {/* Pipeline health */}
-        <div className="flex items-center gap-1.5" title={`Lag: ${pipelineStatus.delay_seconds}s`}>
-          <span className={`w-2 h-2 rounded-full ${
-            pipelineStatus.status === 'OK' ? 'bg-signal-highlight' :
-            pipelineStatus.status === 'DEGRADED' ? 'bg-accent-amber' :
-            'bg-accent-red'
-          }`} />
+        {/* Pipeline health — from /pipeline-health/status (lightweight) */}
+        <div
+          className="flex items-center gap-1.5"
+          title={`Pipeline delay: ${pipelineStatus.delay_seconds}s`}
+        >
+          <StatusDot color={PIPELINE_COLOR[pipelineStatus.status] ?? '#94A3B8'} />
           <span className="text-[10px] text-text-muted">Pipeline {pipelineStatus.status}</span>
+        </div>
+
+        <span className="w-px h-4 bg-border" />
+
+        {/* WebSocket status badge */}
+        <div
+          className="flex items-center gap-1.5"
+          title={`WebSocket transport: ${wsStatus}`}
+        >
+          <Radio className="w-3 h-3" style={{ color: WS_COLOR[wsStatus] }} />
+          <StatusDot
+            color={WS_COLOR[wsStatus]}
+            pulse={wsStatus === 'reconnecting'}
+          />
+          <span className="text-[10px] text-text-muted">{WS_LABEL[wsStatus]}</span>
         </div>
       </div>
 
@@ -197,7 +281,7 @@ export default function Topbar() {
 
         {/* Notifications */}
         <div className="relative" ref={notificationRef}>
-          <button 
+          <button
             onClick={() => { setShowAlertsDropdown(!showAlertsDropdown); setShowTimeDropdown(false); setShowRefreshDropdown(false); setShowUserDropdown(false); }}
             className="relative p-1.5 rounded text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors"
           >
@@ -206,7 +290,7 @@ export default function Topbar() {
               {criticals + degraded}
             </span>
           </button>
-          
+
           {showAlertsDropdown && (
             <div className="absolute right-0 top-full mt-1 w-80 bg-bg-surface border border-border rounded shadow-lg z-50 animate-fade-in max-h-[400px] overflow-y-auto py-1">
               <h4 className="px-4 py-2 text-xs font-semibold border-b border-border text-text-primary">Recent Alerts</h4>
@@ -255,4 +339,3 @@ export default function Topbar() {
     </header>
   );
 }
-

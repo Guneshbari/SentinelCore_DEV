@@ -16,6 +16,8 @@ import type {
   FeatureSnapshot,
   MLAnomaly,
   MLCluster,
+  MLFailureRisk,
+  LiveStatusEntry,
 } from '../types/telemetry';
 import { auth } from './firebase';
 import * as mockApi from './mockApi';
@@ -29,7 +31,7 @@ export const USE_MOCK_DATA = mockModeEnv === '1'
 export const DASHBOARD_DATA_MODE = USE_MOCK_DATA ? 'mock' : 'live';
 
 const configuredApiBase = import.meta.env.VITE_SENTINEL_API_BASE_URL?.trim();
-const API_BASE = (configuredApiBase || 'http://localhost:8000').replace(/\/+$/, '');
+export const API_BASE = (configuredApiBase || 'http://localhost:8000').replace(/\/+$/, '');
 export const RECENT_EVENTS_LIMIT = Number.parseInt(
   import.meta.env.VITE_SENTINEL_RECENT_EVENTS_LIMIT ?? '1000',
   10,
@@ -307,9 +309,9 @@ export async function fetchMLClusters(limit = 50): Promise<MLCluster[]> {
 }
 
 // Re-export types for consumers
-export type { MLPrediction, FeatureSnapshot, MLAnomaly, MLCluster };
+export type { MLPrediction, FeatureSnapshot, MLAnomaly, MLCluster, MLFailureRisk, LiveStatusEntry };
 
-// ── Health check ────────────────────────────────────────
+// ── Health check ────────────────────────────────────────────
 
 export async function checkAPIHealth(): Promise<boolean> {
   if (USE_MOCK_DATA) return true;
@@ -320,6 +322,32 @@ export async function checkAPIHealth(): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+// ── Pipeline health status (lightweight, for Topbar badge) ────────────────
+
+export interface PipelineStatus {
+  status: 'OK' | 'DEGRADED' | 'DOWN';
+  delay_seconds: number;
+}
+
+export async function fetchPipelineHealthStatus(): Promise<PipelineStatus> {
+  if (USE_MOCK_DATA) return mockApi.fetchPipelineHealthStatus();
+  return fetchJSON<PipelineStatus>('/pipeline-health/status');
+}
+
+// ── Live status (heartbeat — Topbar only) ───────────────────────────
+
+export async function fetchLiveStatus(): Promise<LiveStatusEntry[]> {
+  if (USE_MOCK_DATA) return mockApi.fetchLiveStatus();
+  return fetchJSON<LiveStatusEntry[]>('/live-status');
+}
+
+// ── ML Failure Risk ─────────────────────────────────────────────────
+
+export async function fetchMLFailureRisk(limit = 50): Promise<MLFailureRisk[]> {
+  if (USE_MOCK_DATA) return mockApi.fetchMLFailureRisk(limit);
+  return fetchJSON<MLFailureRisk[]>('/ml/failure-risk', { limit });
 }
 
 // ── Interactive/Mutation endpoints ───────────────────────

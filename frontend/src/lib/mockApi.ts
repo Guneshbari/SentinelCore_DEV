@@ -10,6 +10,8 @@ import type {
   FeatureSnapshot,
   MLAnomaly,
   MLCluster,
+  MLFailureRisk,
+  LiveStatusEntry,
 } from '../types/telemetry';
 
 export const RECENT_EVENTS_LIMIT = 1000;
@@ -407,4 +409,43 @@ export async function fetchMLClusters(limit = 50): Promise<MLCluster[]> {
     model_version:   p.model_version ?? 'v1.4.2',
   }));
   return Promise.resolve(data.slice(0, limit));
+}
+
+// ── ML Failure Risk ────────────────────────────────────────────────────────────
+
+export async function fetchMLFailureRisk(limit = 50): Promise<MLFailureRisk[]> {
+  const data: MLFailureRisk[] = MOCK_ML_PREDICTIONS
+    .map((p) => ({
+      system_id:           p.system_id,
+      failure_probability: p.failure_probability,
+      predicted_fault:     p.predicted_fault,
+      prediction_time:     p.prediction_time,
+    }))
+    .sort((a, b) => b.failure_probability - a.failure_probability);
+  return Promise.resolve(data.slice(0, limit));
+}
+
+// ── Live Status (heartbeat) ─────────────────────────────────────────────────────
+
+export async function fetchLiveStatus(): Promise<LiveStatusEntry[]> {
+  const data: LiveStatusEntry[] = MOCK_SYSTEMS.map((sys) => ({
+    system_id:            sys.system_id,
+    hostname:             sys.hostname,
+    online:               sys.status === 'online',
+    cpu_usage_percent:    sys.cpu_usage_percent,
+    memory_usage_percent: sys.memory_usage_percent,
+    disk_free_percent:    sys.disk_free_percent,
+    os_version:           sys.os_version,
+    agent_version:        '1.0.0',
+    ip_address:           sys.ip_address,
+    uptime_seconds:       sys.status === 'online' ? 86400 : 0,
+    last_seen:            sys.last_seen,
+  }));
+  return Promise.resolve(data);
+}
+
+// ── Pipeline Health Status (lightweight) ─────────────────────────────────────────
+
+export async function fetchPipelineHealthStatus(): Promise<{ status: 'OK' | 'DEGRADED' | 'DOWN'; delay_seconds: number }> {
+  return Promise.resolve({ status: 'OK', delay_seconds: 0 });
 }
