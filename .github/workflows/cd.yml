@@ -1,0 +1,293 @@
+name: CD
+
+on:
+  push:
+    branches: [main]
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        default: staging
+        type: choice
+        options:
+          - staging
+          - production
+
+concurrency:
+  group: cd-${{ github.ref }}
+  cancel-in-progress: false   # never cancel an in-flight deploy
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Required repository secrets:
+#   GHCR_PAT           – GitHub PAT with packages:write (or use GITHUB_TOKEN)
+#   DEPLOY_SSH_KEY     – private key for SSH deploy target
+#   DEPLOY_HOST        – hostname / IP of deploy server
+#   DEPLOY_USER        – SSH user on deploy server
+#   DEPLOY_PATH        – absolute path on server where docker-compose lives
+#   SENTINEL_COLLECTOR_SECRET – production value (openssl rand -hex 32)
+#
+# Optional / environment-specific secrets can be added as GitHub Environments
+# named "staging" and "production".
+# ─────────────────────────────────────────────────────────────────────────────
+
+jobs:
+  # ─────────────────────────────────────────────
+  # 1. Determine environment + image tag
+  # ─────────────────────────────────────────────
+  setup:
+    name: Resolve deploy context
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.ctx.outputs.environment }}
+      image_tag: ${{ steps.ctx.outputs.image_tag }}
+      short_sha: ${{ steps.ctx.outputs.short_sha }}
+    steps:
+      - name: Resolve context
+        id: ctx
+        run: |
+          SHORT_SHA="${GITHUB_SHA::8}"
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            ENV="production"
+            TAG="${GITHUB_REF_NAME}"
+          elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            ENV="${{ github.event.inputs.environment }}"
+            TAG="$ENV-$SHORT_SHA"
+          else
+            ENV="staging"
+            TAG="staging-$SHORT_SHA"
+          fi
+          echo "environment=$ENV"   >> "$GITHUB_OUTPUT"
+          echo "image_tag=$TAG"     >> "$GITHUB_OUTPUT"
+          echo "short_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
+
+  # ─────────────────────────────────────────────
+  # 2. Build & push backend Docker image to GHCR
+  # ─────────────────────────────────────────────
+  build-push-backend:
+    name: Build & Push Backend Image
+    runs-on: ubuntu-latest
+    needs: setup
+    permissions:
+      contents: read
+      packages: write
+
+    outputs:
+      image_ref: ${{ steps.meta.outputs.tags }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/backend
+          tags: |
+            type=raw,value=${{ needs.setup.outputs.image_tag }}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix=sha-
+
+      - name: Build & push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.backend
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ─────────────────────────────────────────────
+  # 3. Build frontend & push to GHCR (nginx image)
+  # ─────────────────────────────────────────────
+  build-push-frontend:
+    name: Build & Push Frontend Image
+    runs-on: ubuntu-latest
+    needs: setup
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Write nginx Dockerfile inline
+        run: |
+          cat > Dockerfile.frontend << 'EOF'
+          FROM nginx:1.27-alpine
+          COPY frontend/dist /usr/share/nginx/html
+          COPY .github/nginx/default.conf /etc/nginx/conf.d/default.conf
+          EXPOSE 80
+          CMD ["nginx", "-g", "daemon off;"]
+          EOF
+
+      - name: Write nginx config (SPA fallback)
+        run: |
+          mkdir -p .github/nginx
+          cat > .github/nginx/default.conf << 'EOF'
+          server {
+              listen 80;
+              root /usr/share/nginx/html;
+              index index.html;
+              location / {
+                  try_files $uri $uri/ /index.html;
+              }
+              location /api/ {
+                  proxy_pass http://api_server:8000/;
+                  proxy_set_header Host $host;
+                  proxy_set_header X-Real-IP $remote_addr;
+              }
+              gzip on;
+              gzip_types text/plain text/css application/javascript application/json;
+          }
+          EOF
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker metadata (frontend)
+        id: meta-fe
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/frontend
+          tags: |
+            type=raw,value=${{ needs.setup.outputs.image_tag }}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=semver,pattern={{version}}
+            type=sha,prefix=sha-
+
+      - name: Build & push frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.frontend
+          push: true
+          tags: ${{ steps.meta-fe.outputs.tags }}
+          labels: ${{ steps.meta-fe.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ─────────────────────────────────────────────
+  # 4. Deploy via SSH (docker compose pull + up)
+  # ─────────────────────────────────────────────
+  deploy:
+    name: Deploy → ${{ needs.setup.outputs.environment }}
+    runs-on: ubuntu-latest
+    needs: [setup, build-push-backend, build-push-frontend]
+    environment: ${{ needs.setup.outputs.environment }}
+
+    steps:
+      - name: Checkout (for compose file)
+        uses: actions/checkout@v4
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            set -e
+            cd ${{ secrets.DEPLOY_PATH }}
+
+            # Pull latest compose file from repo (already on server via git pull)
+            git fetch --all
+            git reset --hard origin/${{ github.ref_name }} 2>/dev/null || true
+
+            # Export image tag so compose picks correct image versions
+            export IMAGE_TAG="${{ needs.setup.outputs.image_tag }}"
+            export REGISTRY="${{ env.REGISTRY }}"
+            export REPO="${{ github.repository }}"
+            export SENTINEL_COLLECTOR_SECRET="${{ secrets.SENTINEL_COLLECTOR_SECRET }}"
+
+            # Authenticate with GHCR on the server
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+            # Pull new images, recreate only changed services, prune old images
+            docker compose pull api_server kafka_consumer feature_builder
+            docker compose up -d --remove-orphans api_server kafka_consumer feature_builder
+            docker image prune -f
+
+      - name: Health check
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            set -e
+            cd ${{ secrets.DEPLOY_PATH }}
+            # Wait up to 60s for API to become healthy
+            for i in $(seq 1 12); do
+              if curl -sf http://localhost:8000/health > /dev/null 2>&1; then
+                echo "✅ API healthy after ${i}x5s"
+                exit 0
+              fi
+              echo "Waiting... ($i/12)"
+              sleep 5
+            done
+            echo "❌ API health check failed"
+            docker compose logs --tail=50 api_server
+            exit 1
+
+  # ─────────────────────────────────────────────
+  # 5. Post-deploy notification (optional)
+  # ─────────────────────────────────────────────
+  notify:
+    name: Notify deploy result
+    runs-on: ubuntu-latest
+    needs: [setup, deploy]
+    if: always()
+    steps:
+      - name: Report status
+        run: |
+          STATUS="${{ needs.deploy.result }}"
+          ENV="${{ needs.setup.outputs.environment }}"
+          TAG="${{ needs.setup.outputs.image_tag }}"
+          echo "Deploy $TAG → $ENV: $STATUS"
+          # Add Slack/Discord/email webhook here if needed:
+          # curl -X POST -H 'Content-type: application/json' \
+          #   --data "{\"text\":\"SentinelCore deploy $TAG → $ENV: $STATUS\"}" \
+          #   "${{ secrets.SLACK_WEBHOOK }}"
