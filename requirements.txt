@@ -56,5 +56,11 @@ pandas>=2.2.0
 pytest>=9.0.2
 pytest-timeout>=2.3.1
 
+# ── Firebase Admin SDK (api_server — conditional auth) ───────────────────────
+# Required when SENTINEL_FIREBASE_AUTH_ENABLED=true.
+# Loads gracefully (try/except) when disabled, but must be installed in the
+# container so the import succeeds at module load time.
+firebase-admin>=6.5.0
+
 # ── Optional: structured logging / pretty output (used in development) ────────
 # rich>=13.9.4        # Uncomment if you want rich console output in scripts

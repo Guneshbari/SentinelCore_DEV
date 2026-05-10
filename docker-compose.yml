@@ -1,4 +1,7 @@
 version: '3.8'
+# All secrets / environment-specific values are injected via environment variables.
+# For local development: copy .env.example → .env and fill in real values.
+# For production: set variables in the server shell or via docker compose --env-file.
 
 x-backend-base: &backend-base
   build:
@@ -15,15 +18,16 @@ x-backend-base: &backend-base
     - SENTINEL_INSERT_BATCH_SIZE=1000
     # REQUIRED: Generate with: openssl rand -hex 32
     # Shared secret between collector agents and the Kafka consumer.
-    # Without this, all Python services will crash on startup.
-    - SENTINEL_COLLECTOR_SECRET=CHANGE_ME_GENERATE_WITH_openssl_rand_hex_32
+    # Set SENTINEL_COLLECTOR_SECRET in your .env file or server environment.
+    - SENTINEL_COLLECTOR_SECRET=${SENTINEL_COLLECTOR_SECRET}
     # Set to 'development' to enable /docs, /redoc, /openapi.json on the API server
-    - SENTINEL_ENV=production
-    # Firebase auth — override with real values in production
-    - SENTINEL_FIREBASE_AUTH_ENABLED=false
-    - SENTINEL_FIREBASE_SERVICE_ACCOUNT_PATH=
-    # CORS — add your deployed frontend URL here for production
-    - SENTINEL_API_CORS_ALLOWED_ORIGINS=http://localhost:5173
+    - SENTINEL_ENV=${SENTINEL_ENV:-production}
+    # Firebase auth — set SENTINEL_FIREBASE_AUTH_ENABLED=true in production with a real key path
+    - SENTINEL_FIREBASE_AUTH_ENABLED=${SENTINEL_FIREBASE_AUTH_ENABLED:-false}
+    # Path inside the container (mount the key file as a volume or build-arg in production)
+    - SENTINEL_FIREBASE_SERVICE_ACCOUNT_PATH=${SENTINEL_FIREBASE_SERVICE_ACCOUNT_PATH:-/app/firebase-key.json}
+    # CORS — set to your deployed frontend URL (e.g. https://dashboard.example.com)
+    - SENTINEL_API_CORS_ALLOWED_ORIGINS=${SENTINEL_API_CORS_ALLOWED_ORIGINS:-http://localhost:5173}
   depends_on:
     postgres:
       condition: service_healthy
@@ -103,6 +107,25 @@ services:
         condition: service_started
       postgres:
         condition: service_healthy
+
+  # ─── Frontend (nginx serving built SPA + proxying /api → api_server) ───────
+  frontend:
+    image: ${REGISTRY:-ghcr.io}/${IMAGE_NAME:-sentinelcore/sentinelcore}/frontend:${IMAGE_TAG:-latest}
+    ports:
+      - "${FRONTEND_PORT:-80}:80"
+    depends_on:
+      - api_server
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 128m
+          cpus: '0.25'
+    # For local development without a pre-built image, comment out 'image' above
+    # and uncomment the build block below:
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile.frontend
 
 volumes:
   pgdata:

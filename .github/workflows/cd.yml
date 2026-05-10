@@ -32,6 +32,8 @@ env:
 #   DEPLOY_USER        – SSH user on deploy server
 #   DEPLOY_PATH        – absolute path on server where docker-compose lives
 #   SENTINEL_COLLECTOR_SECRET – production value (openssl rand -hex 32)
+#   SENTINEL_API_CORS_ALLOWED_ORIGINS – production frontend URL (e.g. https://dashboard.example.com)
+#   VITE_SENTINEL_API_BASE_URL – public URL of the API server (e.g. https://api.example.com)
 #
 # Optional / environment-specific secrets can be added as GitHub Environments
 # named "staging" and "production".
@@ -142,8 +144,16 @@ jobs:
 
       - name: Build frontend
         working-directory: frontend
+        env:
+          # Bake the production API URL into the static bundle at build time.
+          # Set VITE_SENTINEL_API_BASE_URL as a GitHub secret (e.g. https://api.example.com)
+          VITE_SENTINEL_API_BASE_URL: ${{ secrets.VITE_SENTINEL_API_BASE_URL || 'http://localhost:8000' }}
+          VITE_SENTINEL_USE_MOCK_DATA: "false"
         run: |
           npm ci
+          # Write a temporary .env so vite picks up the injected API URL
+          echo "VITE_SENTINEL_API_BASE_URL=${VITE_SENTINEL_API_BASE_URL}" > .env
+          echo "VITE_SENTINEL_USE_MOCK_DATA=false" >> .env
           npm run build
 
       - name: Write nginx Dockerfile inline
@@ -240,14 +250,18 @@ jobs:
             export IMAGE_TAG="${{ needs.setup.outputs.image_tag }}"
             export REGISTRY="${{ env.REGISTRY }}"
             export REPO="${{ github.repository }}"
+            export IMAGE_NAME="${{ github.repository }}"
             export SENTINEL_COLLECTOR_SECRET="${{ secrets.SENTINEL_COLLECTOR_SECRET }}"
+            export SENTINEL_API_CORS_ALLOWED_ORIGINS="${{ secrets.SENTINEL_API_CORS_ALLOWED_ORIGINS }}"
+            export SENTINEL_ENV="production"
+            export SENTINEL_FIREBASE_AUTH_ENABLED="${SENTINEL_FIREBASE_AUTH_ENABLED:-false}"
 
             # Authenticate with GHCR on the server
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
             # Pull new images, recreate only changed services, prune old images
-            docker compose pull api_server kafka_consumer feature_builder
-            docker compose up -d --remove-orphans api_server kafka_consumer feature_builder
+            docker compose pull api_server kafka_consumer feature_builder frontend
+            docker compose up -d --remove-orphans api_server kafka_consumer feature_builder frontend
             docker image prune -f
 
       - name: Health check
