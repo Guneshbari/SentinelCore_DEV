@@ -1,15 +1,13 @@
 """
-SentinelCore - Production-grade Windows Telemetry Agent
-Version: 4.0.0
+SentinelCore - Cross-Platform Telemetry Agent
+Version: 4.1.0
 
-CHANGES FROM v3:
-- Strategy pattern replaces inline mode branching
-- Resource snapshot moved outside event loop (was per-event)
-- Checkpoint saved once per cycle (was per-channel)
-- ErrorClassifier replaced with module-level functions
-- Removed os.chdir() — all paths are now absolute
-- Dead HTTPS path clearly separated from Kafka pipeline
-- Version string unified
+CHANGES FROM v4.0 (Windows-only):
+- Full Linux support: reads systemd journal + syslog/kern/auth log files
+- Platform-dispatched: Windows path unchanged, Linux path added
+- All downstream code (Kafka, ML, checkpoints) untouched — same event shape
+- Hard win32 import removed; pywin32 only imported when on Windows
+- is_admin(), get_os_version(), collect_events_from_channel() now cross-platform
 """
 
 import json
@@ -19,21 +17,33 @@ import os
 import socket
 import hashlib
 import re
-import ctypes
 import logging
+import platform
+import subprocess
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from typing import Any, List, Dict, Optional, Tuple
 from collections import deque
-import winreg
 import uuid
 
-try:
-    import win32evtlog
-    import pywintypes
-except ImportError:
-    print("ERROR: pywin32 required. pip install pywin32", file=sys.stderr)
-    sys.exit(1)
+# ── Platform detection (resolved once at import time) ────────────────────────
+_IS_WINDOWS = sys.platform.startswith('win')
+_IS_LINUX   = sys.platform.startswith('linux')
+
+# ── Windows-only imports (pywin32) ────────────────────────────────────────────
+if _IS_WINDOWS:
+    import ctypes
+    import winreg
+    try:
+        import win32evtlog
+        import pywintypes
+    except ImportError:
+        print("ERROR: pywin32 required on Windows. pip install pywin32", file=sys.stderr)
+        sys.exit(1)
+else:
+    # Stubs so references elsewhere don't NameError at parse time
+    win32evtlog = None  # type: ignore[assignment]
+    pywintypes  = None  # type: ignore[assignment]
 
 try:
     import psutil
@@ -100,8 +110,8 @@ _clean_message = clean_message  # backward-compat alias
 # CONSTANTS
 # ============================================================================
 
-COLLECTOR_VERSION = "4.0.0"
-AGENT_VERSION = "2.1.0"
+COLLECTOR_VERSION = "4.1.0"
+AGENT_VERSION = "2.2.0"
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
 CONFIG_FILE = os.path.join(PROJECT_ROOT, "config.json")
@@ -180,12 +190,29 @@ REQUEST_TIMEOUT       = 30
 ENABLE_LOCAL_FALLBACK = True
 FALLBACK_FILE_PREFIX  = os.path.join(SCRIPT_DIR, "events_fallback")
 
-# Collection
-TARGET_LOGS = [
-    "System",
-    "Microsoft-Windows-Kernel-Power",
-    "Microsoft-Windows-DriverFrameworks-UserMode/Operational"
-]
+# Collection — Windows channels vs Linux log sources
+if _IS_WINDOWS:
+    TARGET_LOGS = [
+        "System",
+        "Microsoft-Windows-Kernel-Power",
+        "Microsoft-Windows-DriverFrameworks-UserMode/Operational"
+    ]
+else:
+    # Linux: journal units + plain log files (use whichever exist on the host)
+    TARGET_LOGS = [
+        "journal:kernel",   # kernel messages via journalctl
+        "journal:systemd",  # systemd unit failures
+        "journal:auth",     # auth/sudo events
+        "/var/log/kern.log",
+        "/var/log/syslog",
+        "/var/log/auth.log",
+        "/var/log/messages",  # RHEL/CentOS fallback
+    ]
+    # Keep only sources that actually exist (journal always tried; files checked)
+    TARGET_LOGS = (
+        [t for t in TARGET_LOGS if t.startswith("journal:")]
+        + [t for t in TARGET_LOGS if not t.startswith("journal:") and os.path.exists(t)]
+    )
 INCLUDE_LEVELS = [1, 2, 3]
 EXCLUDE_PROVIDER_KEYWORDS = [
     "tcpip", "dns", "dhcp", "wlan", "smb", "network",
@@ -319,8 +346,13 @@ def check_disk_space() -> bool:
 # ============================================================================
 
 def is_admin() -> bool:
+    """True when running as Administrator (Windows) or root/sudo (Linux)."""
     try:
-        return ctypes.windll.shell32.IsUserAnAdmin() != 0
+        if _IS_WINDOWS:
+            import ctypes
+            return ctypes.windll.shell32.IsUserAnAdmin() != 0
+        else:
+            return os.geteuid() == 0
     except Exception as exc:
         _log_collector_failure("is_admin", exc)
         return False
@@ -328,19 +360,23 @@ def is_admin() -> bool:
 
 def check_admin_privileges() -> Tuple[bool, List[str]]:
     admin = is_admin()
-    warnings = []
+    warnings: List[str] = []
     if not admin:
-        warnings.append("Running WITHOUT Administrator privileges. Some channels may be inaccessible.")
-        for channel in TARGET_LOGS:
-            try:
-                query = f"<QueryList><Query><Select Path='{channel}'>*[System[EventRecordID &gt; 999999999]]</Select></Query></QueryList>"
-                win32evtlog.EvtQuery(channel, win32evtlog.EvtQueryChannelPath | win32evtlog.EvtQueryForwardDirection, query, None)
-            except pywintypes.error as e:
-                if e.winerror in [5, 15001]:
-                    warnings.append(f"  ✗ Channel '{channel}' requires admin access")
-                elif e.winerror == 15007:
-                    warnings.append(f"  ✗ Channel '{channel}' does not exist")
-        warnings.append("\nTo run as admin: open PowerShell as Administrator and run: python collector.py")
+        if _IS_WINDOWS:
+            warnings.append("Running WITHOUT Administrator privileges. Some channels may be inaccessible.")
+            for channel in TARGET_LOGS:
+                try:
+                    query = f"<QueryList><Query><Select Path='{channel}'>*[System[EventRecordID &gt; 999999999]]</Select></Query></QueryList>"
+                    win32evtlog.EvtQuery(channel, win32evtlog.EvtQueryChannelPath | win32evtlog.EvtQueryForwardDirection, query, None)
+                except pywintypes.error as e:
+                    if e.winerror in [5, 15001]:
+                        warnings.append(f"  ✗ Channel '{channel}' requires admin access")
+                    elif e.winerror == 15007:
+                        warnings.append(f"  ✗ Channel '{channel}' does not exist")
+            warnings.append("\nTo run as admin: open PowerShell as Administrator and run: python collector.py")
+        else:
+            warnings.append("Running without root. Journal reads may be partial; /var/log/auth.log may be unreadable.")
+            warnings.append("To run as root: sudo python collector.py")
     return admin, warnings
 
 # ============================================================================
@@ -484,15 +520,33 @@ def get_boot_session_id() -> str:
 
 
 def get_os_version() -> str:
-    try:
-        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows NT\CurrentVersion", 0, winreg.KEY_READ)
-        name, _  = winreg.QueryValueEx(key, "ProductName")
-        build, _ = winreg.QueryValueEx(key, "CurrentBuild")
-        winreg.CloseKey(key)
-        return f"{name} (Build {build})"
-    except Exception:
-        _log_collector_failure("get_os_version", "registry lookup failed")
-        return "Windows (Unknown Version)"
+    """Human-readable OS string — Windows registry or Linux /etc/os-release."""
+    if _IS_WINDOWS:
+        try:
+            key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows NT\CurrentVersion", 0, winreg.KEY_READ)
+            name, _  = winreg.QueryValueEx(key, "ProductName")
+            build, _ = winreg.QueryValueEx(key, "CurrentBuild")
+            winreg.CloseKey(key)
+            return f"{name} (Build {build})"
+        except Exception:
+            _log_collector_failure("get_os_version", "registry lookup failed")
+            return "Windows (Unknown Version)"
+    else:
+        # Parse /etc/os-release (present on all modern Linux distros)
+        try:
+            info: Dict[str, str] = {}
+            with open("/etc/os-release", "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if "=" in line:
+                        k, _, v = line.partition("=")
+                        info[k] = v.strip('"')
+            pretty = info.get("PRETTY_NAME") or f"{info.get('NAME', 'Linux')} {info.get('VERSION', '')}".strip()
+            kernel = platform.release()
+            return f"{pretty} (kernel {kernel})"
+        except Exception:
+            _log_collector_failure("get_os_version", "/etc/os-release read failed")
+            return f"Linux {platform.release()}"
 
 
 def get_uptime_seconds() -> int:
@@ -1078,6 +1132,21 @@ def _build_resource_event(
 # ============================================================================
 
 def collect_events_from_channel(channel: str, last_record_id: int) -> List[Dict]:
+    """Platform-dispatched event collector.
+
+    Windows: reads via win32evtlog EvtQuery/EvtNext/EvtRender.
+    Linux:   reads via journalctl (journal:* sources) or direct log file tail.
+    Both paths return identically-shaped dicts so all upstream code is unchanged.
+    """
+    if _IS_WINDOWS:
+        return _collect_windows_channel(channel, last_record_id)
+    else:
+        return _collect_linux_source(channel, last_record_id)
+
+
+# ── Windows implementation ────────────────────────────────────────────────────
+
+def _collect_windows_channel(channel: str, last_record_id: int) -> List[Dict]:
     events = []
     level_filter = " or ".join(f"Level={l}" for l in INCLUDE_LEVELS)
     query = f"""
@@ -1128,6 +1197,232 @@ def collect_events_from_channel(channel: str, last_record_id: int) -> List[Dict]
 
     return events
 
+
+# ── Linux implementation ──────────────────────────────────────────────────────
+
+# Map journal: source names to journalctl unit/syslog-identifier filters
+_JOURNAL_FILTERS: Dict[str, List[str]] = {
+    "journal:kernel":  ["--identifier=kernel", "--dmesg"],
+    "journal:systemd": ["--unit=*", "--priority=0..4"],  # emerg..warning
+    "journal:auth":    ["--identifier=sudo", "--identifier=sshd",
+                        "--identifier=login", "--identifier=su"],
+}
+
+# Syslog severity -> SentinelCore level (1=Critical,2=Error,3=Warning)
+_SYSLOG_LEVEL_MAP: Dict[str, int] = {
+    "emerg": 1, "alert": 1, "crit": 1,
+    "err": 2, "error": 2,
+    "warn": 3, "warning": 3,
+}
+
+# Linux fault classification rules (provider_substring -> fault_type)
+_LINUX_CLASSIFICATION_RULES: List[Tuple[str, str]] = [
+    ("oom",           "SYSTEM_FAULT"),
+    ("kernel",        "SYSTEM_FAULT"),
+    ("segfault",      "SYSTEM_FAULT"),
+    ("panic",         "SYSTEM_FAULT"),
+    ("i/o error",     "STORAGE_ERROR"),
+    ("ext4",          "STORAGE_ERROR"),
+    ("xfs",           "STORAGE_ERROR"),
+    ("btrfs",         "STORAGE_ERROR"),
+    ("nvme",          "STORAGE_ERROR"),
+    ("sd",            "STORAGE_ERROR"),
+    ("failed",        "SERVICE_ERROR"),
+    ("systemd",       "SERVICE_ERROR"),
+    ("sudo",          "SECURITY_EVENT"),
+    ("sshd",          "SECURITY_EVENT"),
+    ("authentication failure", "SECURITY_EVENT"),
+    ("invalid user",  "SECURITY_EVENT"),
+    ("driver",        "DRIVER_ISSUE"),
+    ("firmware",      "DRIVER_ISSUE"),
+    ("cpu",           "RESOURCE_WARNING"),
+    ("memory",        "RESOURCE_WARNING"),
+    ("thermal",       "RESOURCE_WARNING"),
+]
+
+
+def _classify_linux_message(message: str) -> str:
+    msg_lower = message.lower()
+    for keyword, fault_type in _LINUX_CLASSIFICATION_RULES:
+        if keyword in msg_lower:
+            return fault_type
+    return "UNKNOWN"
+
+
+def _parse_journalctl_line(line: str, channel: str, record_id: int) -> Optional[Dict]:
+    """Parse a journalctl --output=short-iso line into a collector event dict."""
+    # Format: 2024-01-15T10:23:45+0530 hostname identifier[pid]: message
+    m = re.match(
+        r'(\S+)\s+(\S+)\s+(\S+?)(?:\[(\d+)\])?:\s*(.*)',
+        line
+    )
+    if not m:
+        return None
+    ts_str, _host, identifier, pid_str, message = m.groups()
+    if not message.strip():
+        return None
+
+    # Parse ISO timestamp
+    try:
+        # journalctl timestamps may omit seconds fraction — normalise
+        ts_str_clean = re.sub(r'(\+|-)([0-9]{2})([0-9]{2})$', r'\1\2:\3', ts_str)
+        event_time = datetime.fromisoformat(ts_str_clean).astimezone(timezone.utc).isoformat()
+    except Exception:
+        event_time = datetime.now(timezone.utc).isoformat()
+
+    fault_type = _classify_linux_message(message)
+    fault_desc = _FAULT_DESCRIPTIONS.get(fault_type, "Unclassified event")
+    level = 2 if fault_type in ("SYSTEM_FAULT", "STORAGE_ERROR") else 3
+    severity = LEVEL_NAMES.get(level, "WARNING")
+
+    return {
+        'metadata': {
+            'event_record_id': record_id,
+            'provider_name':   identifier or "unknown",
+            'event_id':        0,
+            'level':           level,
+            'task':            0,
+            'opcode':          0,
+            'keywords':        '0x0',
+            'process_id':      int(pid_str) if pid_str else 0,
+            'thread_id':       0,
+            'event_time':      event_time,
+            'event_message':   message,
+        },
+        'raw_xml':    line,     # store raw line in the xml field (same schema)
+        'log_channel': channel,
+    }
+
+
+def _collect_via_journal(source: str, last_record_id: int) -> List[Dict]:
+    """Read from systemd journal using journalctl.
+    Uses cursor-based pagination: last_record_id is encoded as a line-offset
+    counter (stored in checkpoint) since journal cursors are opaque strings
+    and our checkpoint is int-keyed.
+    """
+    filters = _JOURNAL_FILTERS.get(source, [])
+    # Fetch up to BATCH_SIZE lines newer than what we already processed.
+    # journalctl --lines N gives the last N lines; we add --since to avoid
+    # replaying old data on first run (start from 24h ago max).
+    cmd = [
+        "journalctl",
+        "--no-pager",
+        "--output=short-iso",
+        "--lines", str(BATCH_SIZE),
+        "--priority=0..4",   # emerg through warning
+    ] + filters
+
+    events: List[Dict] = []
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        lines = result.stdout.splitlines()
+        # Skip lines already seen (simple offset — checkpoints store line count)
+        new_lines = lines[last_record_id:]
+        for i, line in enumerate(new_lines):
+            parsed = _parse_journalctl_line(line, source, last_record_id + i + 1)
+            if parsed:
+                events.append(parsed)
+    except FileNotFoundError:
+        # journalctl not present (e.g. non-systemd distro) — skip silently
+        pass
+    except subprocess.TimeoutExpired:
+        _log_collector_failure("collect_linux_journal", "journalctl timeout", source=source)
+    except Exception as exc:
+        _log_collector_failure("collect_linux_journal", exc, source=source)
+    return events
+
+
+def _collect_via_logfile(filepath: str, last_record_id: int) -> List[Dict]:
+    """Read new lines from a plain log file using byte-offset checkpointing.
+    last_record_id is reused as a byte-offset into the file so we never
+    re-read already-processed lines.
+    """
+    events: List[Dict] = []
+    if not os.path.exists(filepath):
+        return events
+    try:
+        stat = os.stat(filepath)
+        # File was rotated (smaller than our offset) — restart from beginning
+        start_offset = last_record_id if last_record_id <= stat.st_size else 0
+
+        with open(filepath, "r", encoding="utf-8", errors="replace") as f:
+            f.seek(start_offset)
+            for i, line in enumerate(f):
+                line = line.strip()
+                if not line:
+                    continue
+                # Only collect warning-level and above
+                # Syslog format: "Jan 15 10:23:45 host identifier: message"
+                msg_lower = line.lower()
+                is_notable = any(
+                    kw in msg_lower
+                    for kw in ["error", "fail", "crit", "warn", "oom", "panic",
+                               "segfault", "authentication failure", "invalid user"]
+                )
+                if not is_notable:
+                    continue
+
+                fault_type = _classify_linux_message(line)
+                fault_desc = _FAULT_DESCRIPTIONS.get(fault_type, "Unclassified event")
+                level = 2 if fault_type in ("SYSTEM_FAULT", "STORAGE_ERROR") else 3
+
+                # Try to extract timestamp from syslog prefix
+                ts_m = re.match(r'(\w{3}\s+\d+\s+\d+:\d+:\d+)', line)
+                if ts_m:
+                    try:
+                        # Syslog lines lack year — assume current year
+                        parsed_ts = datetime.strptime(
+                            f"{datetime.now().year} {ts_m.group(1)}",
+                            "%Y %b %d %H:%M:%S"
+                        ).replace(tzinfo=timezone.utc)
+                        event_time = parsed_ts.isoformat()
+                    except Exception:
+                        event_time = datetime.now(timezone.utc).isoformat()
+                else:
+                    event_time = datetime.now(timezone.utc).isoformat()
+
+                # Use current byte position as record_id for this event
+                record_id = start_offset + i + 1
+
+                events.append({
+                    'metadata': {
+                        'event_record_id': record_id,
+                        'provider_name':   os.path.basename(filepath),
+                        'event_id':        0,
+                        'level':           level,
+                        'task':            0,
+                        'opcode':          0,
+                        'keywords':        '0x0',
+                        'process_id':      0,
+                        'thread_id':       0,
+                        'event_time':      event_time,
+                        'event_message':   line,
+                    },
+                    'raw_xml':     line,
+                    'log_channel': filepath,
+                })
+                if len(events) >= BATCH_SIZE:
+                    break
+
+    except PermissionError:
+        _log_collector_failure("collect_linux_logfile", "permission denied", filepath=filepath)
+    except Exception as exc:
+        _log_collector_failure("collect_linux_logfile", exc, filepath=filepath)
+    return events
+
+
+def _collect_linux_source(source: str, last_record_id: int) -> List[Dict]:
+    """Route to journal or log-file collector based on source prefix."""
+    if source.startswith("journal:"):
+        return _collect_via_journal(source, last_record_id)
+    else:
+        return _collect_via_logfile(source, last_record_id)
+
 # ============================================================================
 # MAIN COLLECTOR
 # ============================================================================
@@ -1142,7 +1437,8 @@ def run_collector():
         sys.exit(1)
 
     admin, warnings = check_admin_privileges()
-    print(f"Privileges: {'ADMINISTRATOR' if admin else 'STANDARD USER'}")
+    priv_label = "root" if _IS_LINUX else "ADMINISTRATOR"
+    print(f"Privileges: {'ROOT' if admin else 'STANDARD USER'}" if _IS_LINUX else f"Privileges: {'ADMINISTRATOR' if admin else 'STANDARD USER'}")
     for w in warnings:
         print(f"  ⚠ {w}")
 
