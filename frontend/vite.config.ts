@@ -18,12 +18,13 @@ export default defineConfig({
           'vendor-react': ['react', 'react-dom', 'react-router-dom'],
           // State management
           'vendor-state': ['zustand', '@tanstack/react-query'],
-          // Charting — only needed on dashboard/analytics pages
-          'vendor-charts': ['recharts', 'echarts'],
+          // Charting — split so pages using only recharts don't load echarts
+          'vendor-recharts': ['recharts'],
+          'vendor-echarts': ['echarts'],
           // 3D / heavy visualisations — only needed on 3D pages
           'vendor-three': ['three'],
           // Firebase auth — large SDK, only needed on auth flows
-          'vendor-firebase': ['firebase'],
+          'vendor-firebase': ['firebase/app', 'firebase/auth', 'firebase/firestore'],
           // Table utilities
           'vendor-table': ['@tanstack/react-table', '@tanstack/react-virtual'],
         },
