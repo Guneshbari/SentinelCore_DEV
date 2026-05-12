@@ -67,3 +67,7 @@ CLAUDE.md
 AGENTS.md
 .sentinel_id
 .sentinel_id.bak
+QODER.md
+.kiro/
+code-review-graph.md
+code-review-graph.instruction.md

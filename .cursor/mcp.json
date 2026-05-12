@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "code-review-graph": {
+      "command": "/home/trespasser/coding_stuff/SentinelCore_DEV/.venv/bin/python",
+      "args": [
+        "-m",
+        "code_review_graph",
+        "serve"
+      ],
+      "cwd": "/home/trespasser/coding_stuff/SentinelCore_DEV",
+      "type": "stdio"
+    }
+  }
+}

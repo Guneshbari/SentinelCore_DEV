@@ -1,19 +1,21 @@
 # SentinelCore — Python Dependencies
-# Pinned to minimum versions matching the active .venv (March 2026)
+# Pinned to minimum versions matching the active .venv (May 2026, Python 3.14)
 #
 # Component map
 # ─────────────────────────────────────────────────────────────────────────────
-#  src/collector.py          → pywin32, psutil, requests, kafka-python-ng
+#  src/collector.py          → psutil, requests, kafka-python-ng
+#                              (pywin32 only on Windows — conditional import)
 #  src/kafka_to_postgres.py  → kafka-python-ng, psycopg2-binary
-#  src/api_server.py         → fastapi, uvicorn, psycopg2-binary, pydantic
+#  src/api_server.py         → fastapi, uvicorn, psycopg2-binary, pydantic,
+#                              psutil, firebase-admin
 #  src/feature_builder.py    → psycopg2-binary
-#  src/ml_engine.py          → psycopg2-binary, scikit-learn, numpy, pandas
+#  src/ml_engine.py          → psycopg2-binary, scikit-learn, numpy
 #  src/sentinel_utils.py     → psycopg2-binary
 #  src/analyzer.py           → stdlib only (json, re, argparse, xml, etc.)
 #  src/shared/ (namespace)   → stdlib only
-#  tests/test_e2e.py         → pytest, requests
-#  tests/test_live_errors.py → pytest, requests (+ pywin32 on Windows)
-#  tests/validate_collector.py → stdlib only
+#  tests/test_sentinelcore.py  → pytest, requests
+#  tests/test_scalability.py   → pytest
+#  tests/test_api_server_websocket_auth.py → pytest
 #
 # Frontend (frontend/)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -24,43 +26,47 @@
 #                    vite@7, typescript@5.9, eslint@9
 # ─────────────────────────────────────────────────────────────────────────────
 
-# ── Windows-only system integration (collector, tests) ───────────────────────
+# ── Windows-only system integration (collector) ───────────────────────────────
+# Imported conditionally: `if sys.platform.startswith('win')` in collector.py
 pywin32>=311; sys_platform == "win32"
 
-# ── System metrics (collector, tests) ────────────────────────────────────────
+# ── System metrics (collector, api_server) ───────────────────────────────────
 psutil>=7.2.2
 
-# ── HTTP client (collector → health-check, test_e2e HTTP assertions) ─────────
+# ── HTTP client (collector → health-check) ────────────────────────────────────
 requests>=2.32.5
 
 # ── Kafka producer / consumer (collector + kafka_to_postgres) ────────────────
 kafka-python-ng>=2.2.3
 
 # ── PostgreSQL driver (kafka_to_postgres, feature_builder, sentinel_utils,
-#    api_server) ───────────────────────────────────────────────────────────────
-psycopg2-binary>=2.9.11
+#    ml_engine, api_server) ──────────────────────────────────────────────────
+psycopg2-binary>=2.9.12
 
 # ── FastAPI web framework + ASGI server (api_server) ─────────────────────────
-fastapi>=0.135.1
-uvicorn[standard]>=0.41.0
+fastapi>=0.136.1
+uvicorn[standard]>=0.46.0
 
 # ── Data validation — pulled by FastAPI; used for request/response models ─────
-pydantic>=2.12.5
+pydantic>=2.13.4
 
 # ── Machine Learning (ml_engine) ─────────────────────────────────────────────
-scikit-learn>=1.5.0
-numpy>=1.26.0
-pandas>=2.2.0
+# scipy is an indirect dependency of scikit-learn; numpy is used directly
+# inside ml_engine._run_sklearn_pipeline via `import numpy as np`.
+scikit-learn>=1.8.0
+numpy>=2.4.4
+# pandas is imported by feature_builder / kafka_to_postgres analysis utilities
+pandas>=3.0.3
 
 # ── Testing framework (tests/) ───────────────────────────────────────────────
-pytest>=9.0.2
-pytest-timeout>=2.3.1
+pytest>=9.0.3
+pytest-timeout>=2.4.0
 
 # ── Firebase Admin SDK (api_server — conditional auth) ───────────────────────
 # Required when SENTINEL_FIREBASE_AUTH_ENABLED=true.
 # Loads gracefully (try/except) when disabled, but must be installed in the
 # container so the import succeeds at module load time.
-firebase-admin>=6.5.0
+firebase-admin>=7.4.0
 
 # ── Optional: structured logging / pretty output (used in development) ────────
 # rich>=13.9.4        # Uncomment if you want rich console output in scripts
