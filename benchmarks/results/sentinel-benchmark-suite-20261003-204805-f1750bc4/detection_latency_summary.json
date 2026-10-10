@@ -1,0 +1,64 @@
+{
+  "experiment_id": "E01-latency-20261003-204805-be4f5497",
+  "experiment_name": "End-to-End Detection Latency",
+  "experiment_code": "E01",
+  "metadata": {
+    "experiment_id": "E01-latency-20261003-204805-be4f5497",
+    "timestamp": "2026-10-03T20:48:05.812756+00:00",
+    "git_commit_or_version": "38fd6b0",
+    "hostname": "omarchy",
+    "OS": "Linux 7.2.5-3-omarchy (x86_64)",
+    "Python version": "3.14.7",
+    "configuration": {
+      "sample_size": 50,
+      "scenarios": [
+        "SYSTEM_FAULT",
+        "DRIVER_ISSUE",
+        "RESOURCE_WARNING",
+        "SERVICE_ERROR",
+        "SECURITY_EVENT",
+        "UPDATE_ERROR",
+        "STORAGE_ERROR",
+        "UNKNOWN"
+      ]
+    },
+    "system_count": 1,
+    "workload_size": 50,
+    "duration_seconds": 0.0014
+  },
+  "sample_count": 50,
+  "successful_observations": 50,
+  "failed_observations": 0,
+  "detection_latency_ms": {
+    "count": 50,
+    "mean": 0.022,
+    "p50": 0.02,
+    "p95": 0.038,
+    "p99": 0.085,
+    "min": 0.006,
+    "max": 0.125
+  },
+  "end_to_end_latency_ms": {
+    "count": 50,
+    "mean": 0.024,
+    "p50": 0.022,
+    "p95": 0.039,
+    "p99": 0.088,
+    "min": 0.006,
+    "max": 0.129
+  },
+  "event_to_alert_latency_ms": {
+    "count": 44,
+    "mean": 0.002,
+    "p50": 0.001,
+    "p95": 0.002,
+    "p99": 0.004,
+    "min": 0.001,
+    "max": 0.005
+  },
+  "artifacts": {
+    "raw_csv": "detection_latency.csv",
+    "summary_json": "detection_latency_summary.json",
+    "report_md": "detection_latency_report.md"
+  }
+}

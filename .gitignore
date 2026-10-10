@@ -71,3 +71,8 @@ QODER.md
 .kiro/
 code-review-graph.md
 code-review-graph.instruction.md
+
+# Benchmark Run Artifacts
+benchmarks/results/run_*
+benchmarks/results/sentinel-benchmark-suite-*
+!benchmarks/results/sentinel-benchmark-suite-20261003-204805-f1750bc4

@@ -15,6 +15,7 @@ import asyncio
 import json
 import hashlib
 import logging
+import os
 import threading
 import time
 import uuid
@@ -2483,3 +2484,45 @@ def get_ml_clusters(limit: int = 50) -> JSONResponse:
     except Exception as exc:
         _log_failure("/ml/clusters", "endpoint", exc)
         return JSONResponse(content={"error": "Failed to fetch ML clusters. Check server logs."}, status_code=500)
+
+
+# ── /benchmarks/summary ──────────────────────────────────────────────────────
+# Exposes latest empirical benchmark results and technical evidence.
+
+@app.get("/benchmarks/summary")
+@app.get("/benchmarks/latest")
+def get_benchmarks_summary() -> JSONResponse:
+    """
+    Return the latest executed benchmark summary and quantitative evidence.
+
+    Results originate strictly from executed benchmark experiments (E01-E11)
+    and persisted raw observation files.
+    """
+    t0 = time.time()
+    try:
+        # Check standard results locations
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        summary_path = os.path.join(root, "benchmarks", "results", "latest_summary.json")
+        fallback_path = os.path.join(root, "benchmarks", "results", "benchmark_summary.json")
+
+        target_file = summary_path if os.path.exists(summary_path) else fallback_path
+        if not os.path.exists(target_file):
+            _log_req("/benchmarks/summary", (time.time() - t0) * 1000, "ok", 0)
+            return JSONResponse(content={
+                "status": "no_benchmarks_run",
+                "message": "No executed benchmark runs found. Run 'python -m benchmarks' to generate empirical evidence.",
+                "summary": None,
+            })
+
+        with open(target_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        _log_req("/benchmarks/summary", (time.time() - t0) * 1000, "ok", 1)
+        return JSONResponse(content=data)
+    except Exception as exc:
+        _log_failure("/benchmarks/summary", "endpoint", exc)
+        return JSONResponse(
+            content={"error": f"Failed to load benchmark summary: {exc}"},
+            status_code=500,
+        )
+

@@ -1,0 +1,99 @@
+{
+  "experiment_id": "E07-api-benchmark-20261003-204812-8a7c5dcf",
+  "experiment_name": "API Performance",
+  "experiment_code": "E07",
+  "metadata": {
+    "experiment_id": "E07-api-benchmark-20261003-204812-8a7c5dcf",
+    "timestamp": "2026-10-03T20:48:13.117779+00:00",
+    "git_commit_or_version": "38fd6b0",
+    "hostname": "omarchy",
+    "OS": "Linux 7.2.5-3-omarchy (x86_64)",
+    "Python version": "3.14.7",
+    "configuration": {
+      "endpoints": [
+        "/events",
+        "/systems",
+        "/alerts",
+        "/dashboard-metrics",
+        "/metrics",
+        "/ml/predictions",
+        "/ml/anomalies",
+        "/ml/failure-risk",
+        "/pipeline-health",
+        "/pipeline-health/status"
+      ],
+      "concurrency_levels": [
+        1,
+        10,
+        25
+      ],
+      "requests_per_endpoint": 2,
+      "warmup_requests": 1,
+      "is_asgi_direct": true
+    },
+    "system_count": 1,
+    "workload_size": 60,
+    "duration_seconds": 0.0492
+  },
+  "sample_count": 60,
+  "endpoints_evaluated": [
+    "/events",
+    "/systems",
+    "/alerts",
+    "/dashboard-metrics",
+    "/metrics",
+    "/ml/predictions",
+    "/ml/anomalies",
+    "/ml/failure-risk",
+    "/pipeline-health",
+    "/pipeline-health/status"
+  ],
+  "concurrency_results": [
+    {
+      "concurrency": 1,
+      "total_requests": 20,
+      "duration_seconds": 0.0172,
+      "requests_per_second": 1162.93,
+      "error_rate": 0.0,
+      "timeout_rate": 0.0,
+      "p50_latency_ms": 0.669,
+      "p95_latency_ms": 1.165,
+      "p99_latency_ms": 2.867,
+      "mean_latency_ms": 0.836,
+      "min_latency_ms": 0.607,
+      "max_latency_ms": 3.292
+    },
+    {
+      "concurrency": 10,
+      "total_requests": 20,
+      "duration_seconds": 0.016,
+      "requests_per_second": 1248.47,
+      "error_rate": 0.0,
+      "timeout_rate": 0.0,
+      "p50_latency_ms": 6.579,
+      "p95_latency_ms": 10.673,
+      "p99_latency_ms": 11.385,
+      "mean_latency_ms": 6.728,
+      "min_latency_ms": 2.606,
+      "max_latency_ms": 11.563
+    },
+    {
+      "concurrency": 25,
+      "total_requests": 20,
+      "duration_seconds": 0.0159,
+      "requests_per_second": 1260.04,
+      "error_rate": 0.0,
+      "timeout_rate": 0.0,
+      "p50_latency_ms": 12.934,
+      "p95_latency_ms": 14.507,
+      "p99_latency_ms": 14.598,
+      "mean_latency_ms": 12.63,
+      "min_latency_ms": 10.535,
+      "max_latency_ms": 14.621
+    }
+  ],
+  "artifacts": {
+    "raw_csv": "api_benchmark.csv",
+    "summary_json": "api_benchmark_summary.json"
+  }
+}

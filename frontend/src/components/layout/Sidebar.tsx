@@ -7,6 +7,7 @@ import {
   BarChart3,
   Shield,
   Brain,
+  Gauge,
 } from 'lucide-react';
 
 const navItems = [
@@ -16,6 +17,7 @@ const navItems = [
   { to: '/alerts', icon: AlertTriangle, label: 'Alerts' },
   { to: '/analytics', icon: BarChart3, label: 'Analytics' },
   { to: '/ml', icon: Brain, label: 'ML Intel' },
+  { to: '/benchmarks', icon: Gauge, label: 'Benchmarks' },
 ];
 
 export default function Sidebar() {

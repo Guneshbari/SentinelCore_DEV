@@ -178,3 +178,81 @@ export interface LiveStatusEntry {
   uptime_seconds: number;
   last_seen: string;
 }
+
+/**
+ * Technical evidence metric entry for documentation and resume claims.
+ */
+export interface BenchmarkResumeEvidenceItem {
+  metric_name: string;
+  value: number | string;
+  unit: string;
+  sample_count: number;
+  experiment_code: string;
+  experiment_id: string;
+  source_artifact: string;
+  provenance: string;
+}
+
+/**
+ * Summary record for an individual benchmark experiment (E01 to E11).
+ */
+export interface BenchmarkExperimentSummary {
+  experiment_id: string;
+  experiment_name: string;
+  experiment_code: string;
+  sample_count: number;
+  metadata?: Record<string, unknown>;
+  detection_latency_ms?: {
+    count: number;
+    mean?: number;
+    p50: number;
+    p95: number;
+    p99: number;
+    min?: number;
+    max?: number;
+  };
+  overall_detection_coverage?: number;
+  alert_precision?: number;
+  false_positive_rate?: number;
+  f1_score?: number;
+  maximum_sustainable_events_per_sec?: number;
+  delivery_success_rate?: number;
+  recovery_time_seconds?: number;
+  db_recovery_time_seconds?: number;
+  persisted_percentage?: number;
+  concurrency_results?: Array<{
+    concurrency: number;
+    requests_per_second: number;
+    p50_latency_ms: number;
+    p95_latency_ms: number;
+    error_rate: number;
+  }>;
+  roc_auc?: number;
+  lead_time_seconds?: {
+    p50: number;
+    p95: number;
+  };
+  collector_cpu_overhead_percentage_points?: number;
+  collector_memory_overhead_mb?: number;
+  maximum_tested_scale?: number;
+  artifacts?: Record<string, string>;
+}
+
+/**
+ * Complete benchmark suite output from GET /benchmarks/summary.
+ */
+export interface BenchmarkSuiteSummary {
+  generated_at: string;
+  status?: string;
+  message?: string;
+  overall_metadata: {
+    timestamp: string;
+    git_commit_or_version: string;
+    hostname: string;
+    OS: string;
+    Python_version?: string;
+  };
+  experiments: Record<string, BenchmarkExperimentSummary>;
+  resume_evidence: Record<string, BenchmarkResumeEvidenceItem>;
+}
+

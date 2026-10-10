@@ -1,0 +1,89 @@
+{
+  "experiment_id": "E04-throughput-20261003-204805-6c649257",
+  "experiment_name": "Pipeline Throughput",
+  "experiment_code": "E04",
+  "metadata": {
+    "experiment_id": "E04-throughput-20261003-204805-6c649257",
+    "timestamp": "2026-10-03T20:48:11.827886+00:00",
+    "git_commit_or_version": "38fd6b0",
+    "hostname": "omarchy",
+    "OS": "Linux 7.2.5-3-omarchy (x86_64)",
+    "Python version": "3.14.7",
+    "configuration": {
+      "load_levels": [
+        10,
+        50,
+        100,
+        250
+      ],
+      "duration_per_level": 1.5
+    },
+    "system_count": 1,
+    "workload_size": 615,
+    "duration_seconds": 6.0058
+  },
+  "sample_count": 615,
+  "maximum_sustainable_events_per_sec": 249.65,
+  "load_level_results": [
+    {
+      "target_eps": 10,
+      "actual_input_eps": 10.0,
+      "persisted_eps": 10.0,
+      "events_generated": 15,
+      "events_persisted": 15,
+      "event_loss_percent": 0.0,
+      "p50_latency_ms": 99.996,
+      "p95_latency_ms": 100.033,
+      "p99_latency_ms": 100.057,
+      "db_write_latency_ms": 0.185,
+      "peak_kafka_lag": 1,
+      "sustainable": true
+    },
+    {
+      "target_eps": 50,
+      "actual_input_eps": 49.98,
+      "persisted_eps": 49.98,
+      "events_generated": 75,
+      "events_persisted": 75,
+      "event_loss_percent": 0.0,
+      "p50_latency_ms": 19.993,
+      "p95_latency_ms": 20.192,
+      "p99_latency_ms": 20.315,
+      "db_write_latency_ms": 0.453,
+      "peak_kafka_lag": 1,
+      "sustainable": true
+    },
+    {
+      "target_eps": 100,
+      "actual_input_eps": 99.94,
+      "persisted_eps": 99.94,
+      "events_generated": 150,
+      "events_persisted": 150,
+      "event_loss_percent": 0.0,
+      "p50_latency_ms": 9.993,
+      "p95_latency_ms": 10.102,
+      "p99_latency_ms": 10.225,
+      "db_write_latency_ms": 0.761,
+      "peak_kafka_lag": 1,
+      "sustainable": true
+    },
+    {
+      "target_eps": 250,
+      "actual_input_eps": 249.65,
+      "persisted_eps": 249.65,
+      "events_generated": 375,
+      "events_persisted": 375,
+      "event_loss_percent": 0.0,
+      "p50_latency_ms": 3.998,
+      "p95_latency_ms": 4.114,
+      "p99_latency_ms": 4.31,
+      "db_write_latency_ms": 1.02,
+      "peak_kafka_lag": 1,
+      "sustainable": true
+    }
+  ],
+  "artifacts": {
+    "raw_csv": "throughput_benchmark.csv",
+    "summary_json": "throughput_benchmark_summary.json"
+  }
+}

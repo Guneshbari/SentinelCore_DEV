@@ -153,9 +153,9 @@ class TestBatchInsert(unittest.TestCase):
         conn, cur = _mock_cursor_conn()
         with patch.object(_ktp, 'execute_values'):
             _ktp.process_message(conn, self._make_payload(n_events=20))
-        # Only the heartbeat upsert should use cur.execute
-        self.assertEqual(cur.execute.call_count, 1,
-                         f"Expected 1 execute call (heartbeat), got {cur.execute.call_count}")
+        # Only heartbeat handling (identity check + upsert) should use cur.execute, not the 20 events
+        self.assertIn(cur.execute.call_count, (1, 2),
+                         f"Expected 1 or 2 execute calls (heartbeat select/upsert), got {cur.execute.call_count}")
 
     def test_raw_xml_truncated_to_max_bytes(self):
         """Events with very large raw_xml must be truncated before insert."""

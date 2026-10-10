@@ -18,6 +18,7 @@ import type {
   MLCluster,
   MLFailureRisk,
   LiveStatusEntry,
+  BenchmarkSuiteSummary,
 } from '../types/telemetry';
 import { auth } from './firebase';
 import * as mockApi from './mockApi';
@@ -430,3 +431,25 @@ export async function downloadReport(): Promise<void> {
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
+
+/**
+ * Fetch latest empirical benchmark summary and evidence.
+ */
+export async function fetchBenchmarkSummary(): Promise<BenchmarkSuiteSummary | null> {
+  if (USE_MOCK_DATA) {
+    const mock = await mockApi.fetchBenchmarkSummaryMock();
+    return mock as BenchmarkSuiteSummary;
+  }
+  try {
+    const res = await fetch(buildEndpoint('/benchmarks/summary'));
+    if (!res.ok) {
+      return null;
+    }
+    const data = await res.json();
+    return data as BenchmarkSuiteSummary;
+  } catch (error) {
+    console.error('Failed to fetch benchmark summary:', error);
+    return null;
+  }
+}
+

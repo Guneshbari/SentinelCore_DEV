@@ -1,0 +1,113 @@
+{
+  "experiment_id": "E11-scale-20261003-204823-29edf633",
+  "experiment_name": "Horizontal Scale Test",
+  "experiment_code": "E11",
+  "metadata": {
+    "experiment_id": "E11-scale-20261003-204823-29edf633",
+    "timestamp": "2026-10-03T20:48:23.792702+00:00",
+    "git_commit_or_version": "38fd6b0",
+    "hostname": "omarchy",
+    "OS": "Linux 7.2.5-3-omarchy (x86_64)",
+    "Python version": "3.14.7",
+    "configuration": {
+      "system_counts": [
+        1,
+        5,
+        10,
+        25,
+        50,
+        100
+      ],
+      "events_per_system": 5
+    },
+    "system_count": 100,
+    "workload_size": 46,
+    "duration_seconds": 0.3256
+  },
+  "sample_count": 46,
+  "maximum_tested_scale": 100,
+  "scale_tier_results": [
+    {
+      "systems_monitored": 1,
+      "total_events_generated": 5,
+      "total_events_persisted": 5,
+      "total_events_per_sec": 5548.17,
+      "event_loss_percent": 0.0,
+      "db_p95_write_latency_ms": 0.098,
+      "api_p95_latency_ms": 0.157,
+      "server_cpu_percent": 5.8,
+      "server_memory_mb": 239.57,
+      "kafka_lag": 0,
+      "threshold_passed": true
+    },
+    {
+      "systems_monitored": 5,
+      "total_events_generated": 25,
+      "total_events_persisted": 25,
+      "total_events_per_sec": 23217.48,
+      "event_loss_percent": 0.0,
+      "db_p95_write_latency_ms": 0.227,
+      "api_p95_latency_ms": 0.152,
+      "server_cpu_percent": 4.9,
+      "server_memory_mb": 239.57,
+      "kafka_lag": 0,
+      "threshold_passed": true
+    },
+    {
+      "systems_monitored": 10,
+      "total_events_generated": 50,
+      "total_events_persisted": 50,
+      "total_events_per_sec": 23736.38,
+      "event_loss_percent": 0.0,
+      "db_p95_write_latency_ms": 0.403,
+      "api_p95_latency_ms": 0.156,
+      "server_cpu_percent": 11.7,
+      "server_memory_mb": 239.57,
+      "kafka_lag": 0,
+      "threshold_passed": true
+    },
+    {
+      "systems_monitored": 25,
+      "total_events_generated": 125,
+      "total_events_persisted": 125,
+      "total_events_per_sec": 28973.73,
+      "event_loss_percent": 0.0,
+      "db_p95_write_latency_ms": 0.883,
+      "api_p95_latency_ms": 0.158,
+      "server_cpu_percent": 4.8,
+      "server_memory_mb": 239.57,
+      "kafka_lag": 0,
+      "threshold_passed": true
+    },
+    {
+      "systems_monitored": 50,
+      "total_events_generated": 250,
+      "total_events_persisted": 250,
+      "total_events_per_sec": 45270.84,
+      "event_loss_percent": 0.0,
+      "db_p95_write_latency_ms": 1.772,
+      "api_p95_latency_ms": 0.157,
+      "server_cpu_percent": 7.8,
+      "server_memory_mb": 239.57,
+      "kafka_lag": 0,
+      "threshold_passed": true
+    },
+    {
+      "systems_monitored": 100,
+      "total_events_generated": 500,
+      "total_events_persisted": 500,
+      "total_events_per_sec": 56825.39,
+      "event_loss_percent": 0.0,
+      "db_p95_write_latency_ms": 1.743,
+      "api_p95_latency_ms": 0.158,
+      "server_cpu_percent": 8.9,
+      "server_memory_mb": 239.59,
+      "kafka_lag": 0,
+      "threshold_passed": true
+    }
+  ],
+  "artifacts": {
+    "raw_csv": "scale_test.csv",
+    "summary_json": "scale_test_summary.json"
+  }
+}

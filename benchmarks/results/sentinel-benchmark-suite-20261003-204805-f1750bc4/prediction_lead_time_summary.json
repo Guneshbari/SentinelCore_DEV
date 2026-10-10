@@ -1,0 +1,45 @@
+{
+  "experiment_id": "E09-lead-time-20261003-204813-1dc882ec",
+  "experiment_name": "ML Prediction Lead Time",
+  "experiment_code": "E09",
+  "metadata": {
+    "experiment_id": "E09-lead-time-20261003-204813-1dc882ec",
+    "timestamp": "2026-10-03T20:48:14.315632+00:00",
+    "git_commit_or_version": "38fd6b0",
+    "hostname": "omarchy",
+    "OS": "Linux 7.2.5-3-omarchy (x86_64)",
+    "Python version": "3.14.7",
+    "configuration": {
+      "incident_count": 15,
+      "simulated_degradation_steps": 25
+    },
+    "system_count": 15,
+    "workload_size": 15,
+    "duration_seconds": 1.0244
+  },
+  "sample_count": 15,
+  "successfully_predicted_failures": 15,
+  "missed_failures": 0,
+  "lead_time_seconds": {
+    "mean": 46.67,
+    "p50": 30.0,
+    "p95": 126.0,
+    "p99": 137.2,
+    "min": 10.0,
+    "max": 140.0,
+    "count": 15
+  },
+  "lead_time_ms": {
+    "count": 15,
+    "mean": 46666.667,
+    "p50": 30000.0,
+    "p95": 126000.0,
+    "p99": 137200.0,
+    "min": 10000.0,
+    "max": 140000.0
+  },
+  "artifacts": {
+    "raw_csv": "prediction_lead_time.csv",
+    "summary_json": "prediction_lead_time_summary.json"
+  }
+}

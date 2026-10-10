@@ -1,0 +1,11 @@
+experiment_id,timestamp,scenario,system_id,events_generated,events_detected,events_persisted,alerts_generated,true_positives,false_positives,true_negatives,false_negatives,event_time,detection_time,alert_time,resolution_time,detection_latency_ms,end_to_end_latency_ms,kafka_lag,db_write_latency_ms,api_latency_ms,cpu_overhead_percent,memory_overhead_mb,network_bytes,prediction_probability,prediction_label,actual_label,prediction_lead_time_ms,success,error,notes
+E10-overhead-20261003-204814-d55cec02,2026-10-03T20:48:14.317249+00:00,BASELINE_IDLE,benchmark-sys-e10,,,,,,,,,,,,,,,,,,4.4,239.57,864992670,,,,,True,,Baseline idle sample
+E10-overhead-20261003-204814-d55cec02,2026-10-03T20:48:14.718524+00:00,BASELINE_IDLE,benchmark-sys-e10,,,,,,,,,,,,,,,,,,4.9,239.57,864993211,,,,,True,,Baseline idle sample
+E10-overhead-20261003-204814-d55cec02,2026-10-03T20:48:15.119935+00:00,BASELINE_IDLE,benchmark-sys-e10,,,,,,,,,,,,,,,,,,5.9,239.57,865005227,,,,,True,,Baseline idle sample
+E10-overhead-20261003-204814-d55cec02,2026-10-03T20:48:15.521240+00:00,BASELINE_IDLE,benchmark-sys-e10,,,,,,,,,,,,,,,,,,3.4,239.57,865205739,,,,,True,,Baseline idle sample
+E10-overhead-20261003-204814-d55cec02,2026-10-03T20:48:15.922618+00:00,BASELINE_IDLE,benchmark-sys-e10,,,,,,,,,,,,,,,,,,4.4,239.57,865205739,,,,,True,,Baseline idle sample
+E10-overhead-20261003-204814-d55cec02,2026-10-03T20:48:16.324497+00:00,COLLECTOR_ACTIVE_LOAD,benchmark-sys-e10,20,,20,,,,,,,,,,,,,,,0.0,239.57,865205739,,,,,True,,Active telemetry collection sample
+E10-overhead-20261003-204814-d55cec02,2026-10-03T20:48:17.755002+00:00,COLLECTOR_ACTIVE_LOAD,benchmark-sys-e10,20,,20,,,,,,,,,,,,,,,0.0,239.57,865526424,,,,,True,,Active telemetry collection sample
+E10-overhead-20261003-204814-d55cec02,2026-10-03T20:48:19.181776+00:00,COLLECTOR_ACTIVE_LOAD,benchmark-sys-e10,20,,20,,,,,,,,,,,,,,,0.0,239.57,865537717,,,,,True,,Active telemetry collection sample
+E10-overhead-20261003-204814-d55cec02,2026-10-03T20:48:20.609296+00:00,COLLECTOR_ACTIVE_LOAD,benchmark-sys-e10,20,,20,,,,,,,,,,,,,,,0.0,239.57,865549030,,,,,True,,Active telemetry collection sample
+E10-overhead-20261003-204814-d55cec02,2026-10-03T20:48:22.037497+00:00,COLLECTOR_ACTIVE_LOAD,benchmark-sys-e10,20,,20,,,,,,,,,,,,,,,0.0,239.57,865549560,,,,,True,,Active telemetry collection sample

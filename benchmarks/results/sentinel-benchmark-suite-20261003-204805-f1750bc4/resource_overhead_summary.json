@@ -1,0 +1,50 @@
+{
+  "experiment_id": "E10-overhead-20261003-204814-d55cec02",
+  "experiment_name": "Collector Resource Overhead",
+  "experiment_code": "E10",
+  "metadata": {
+    "experiment_id": "E10-overhead-20261003-204814-d55cec02",
+    "timestamp": "2026-10-03T20:48:23.464976+00:00",
+    "git_commit_or_version": "38fd6b0",
+    "hostname": "omarchy",
+    "OS": "Linux 7.2.5-3-omarchy (x86_64)",
+    "Python version": "3.14.7",
+    "configuration": {
+      "sample_count": 5,
+      "workload_event_count": 100,
+      "measurement_interval_sec": 0.2
+    },
+    "system_count": 1,
+    "workload_size": 100,
+    "duration_seconds": 7.1404
+  },
+  "sample_count": 10,
+  "baseline_system_cpu_percent": 4.6,
+  "collector_cpu_overhead_percentage_points": 0.0,
+  "collector_process_cpu_percent": {
+    "count": 5,
+    "mean": 0.0,
+    "p50": 0.0,
+    "p95": 0.0,
+    "p99": 0.0,
+    "min": 0.0,
+    "max": 0.0
+  },
+  "collector_memory_overhead_mb": 0.0,
+  "collector_process_memory_mb": {
+    "count": 5,
+    "mean": 239.566,
+    "p50": 239.566,
+    "p95": 239.566,
+    "p99": 239.566,
+    "min": 239.566,
+    "max": 239.566
+  },
+  "network_bytes_transferred": 556890,
+  "disk_bytes_written": 38379520,
+  "events_processed": 100,
+  "artifacts": {
+    "raw_csv": "resource_overhead.csv",
+    "summary_json": "resource_overhead_summary.json"
+  }
+}

@@ -1,0 +1,868 @@
+{
+  "generated_at": "2026-10-03T20:48:23.797069+00:00",
+  "overall_metadata": {
+    "timestamp": "2026-10-03T20:48:23.795282+00:00",
+    "git_commit_or_version": "38fd6b0",
+    "hostname": "omarchy",
+    "OS": "linux",
+    "Python version": "3.14.7"
+  },
+  "experiments": {
+    "E01": {
+      "experiment_id": "E01-latency-20261003-204805-be4f5497",
+      "experiment_name": "End-to-End Detection Latency",
+      "experiment_code": "E01",
+      "metadata": {
+        "experiment_id": "E01-latency-20261003-204805-be4f5497",
+        "timestamp": "2026-10-03T20:48:05.812756+00:00",
+        "git_commit_or_version": "38fd6b0",
+        "hostname": "omarchy",
+        "OS": "Linux 7.2.5-3-omarchy (x86_64)",
+        "Python version": "3.14.7",
+        "configuration": {
+          "sample_size": 50,
+          "scenarios": [
+            "SYSTEM_FAULT",
+            "DRIVER_ISSUE",
+            "RESOURCE_WARNING",
+            "SERVICE_ERROR",
+            "SECURITY_EVENT",
+            "UPDATE_ERROR",
+            "STORAGE_ERROR",
+            "UNKNOWN"
+          ]
+        },
+        "system_count": 1,
+        "workload_size": 50,
+        "duration_seconds": 0.0014
+      },
+      "sample_count": 50,
+      "successful_observations": 50,
+      "failed_observations": 0,
+      "detection_latency_ms": {
+        "count": 50,
+        "mean": 0.022,
+        "p50": 0.02,
+        "p95": 0.038,
+        "p99": 0.085,
+        "min": 0.006,
+        "max": 0.125
+      },
+      "end_to_end_latency_ms": {
+        "count": 50,
+        "mean": 0.024,
+        "p50": 0.022,
+        "p95": 0.039,
+        "p99": 0.088,
+        "min": 0.006,
+        "max": 0.129
+      },
+      "event_to_alert_latency_ms": {
+        "count": 44,
+        "mean": 0.002,
+        "p50": 0.001,
+        "p95": 0.002,
+        "p99": 0.004,
+        "min": 0.001,
+        "max": 0.005
+      },
+      "artifacts": {
+        "raw_csv": "detection_latency.csv",
+        "summary_json": "detection_latency_summary.json",
+        "report_md": "detection_latency_report.md"
+      }
+    },
+    "E02": {
+      "experiment_id": "E02-coverage-20261003-204805-1fb2194f",
+      "experiment_name": "Fault Detection Coverage",
+      "experiment_code": "E02",
+      "metadata": {
+        "experiment_id": "E02-coverage-20261003-204805-1fb2194f",
+        "timestamp": "2026-10-03T20:48:05.815900+00:00",
+        "git_commit_or_version": "38fd6b0",
+        "hostname": "omarchy",
+        "OS": "Linux 7.2.5-3-omarchy (x86_64)",
+        "Python version": "3.14.7",
+        "configuration": {
+          "sample_size_per_scenario": 6,
+          "scenarios": [
+            "SYSTEM_FAULT",
+            "DRIVER_ISSUE",
+            "RESOURCE_WARNING",
+            "SERVICE_ERROR",
+            "SECURITY_EVENT",
+            "UPDATE_ERROR",
+            "STORAGE_ERROR",
+            "UNKNOWN"
+          ]
+        },
+        "system_count": 1,
+        "workload_size": 48,
+        "duration_seconds": 0.001
+      },
+      "sample_count": 48,
+      "overall_detection_coverage": 0.625,
+      "total_false_negatives": 18,
+      "classification_accuracy": 0.625,
+      "per_class_coverage": {
+        "SYSTEM_FAULT": {
+          "total_events": 6,
+          "correctly_detected": 6,
+          "false_negatives": 0,
+          "coverage_rate": 1.0
+        },
+        "DRIVER_ISSUE": {
+          "total_events": 6,
+          "correctly_detected": 6,
+          "false_negatives": 0,
+          "coverage_rate": 1.0
+        },
+        "RESOURCE_WARNING": {
+          "total_events": 6,
+          "correctly_detected": 0,
+          "false_negatives": 6,
+          "coverage_rate": 0.0
+        },
+        "SERVICE_ERROR": {
+          "total_events": 6,
+          "correctly_detected": 6,
+          "false_negatives": 0,
+          "coverage_rate": 1.0
+        },
+        "SECURITY_EVENT": {
+          "total_events": 6,
+          "correctly_detected": 0,
+          "false_negatives": 6,
+          "coverage_rate": 0.0
+        },
+        "UPDATE_ERROR": {
+          "total_events": 6,
+          "correctly_detected": 6,
+          "false_negatives": 0,
+          "coverage_rate": 1.0
+        },
+        "STORAGE_ERROR": {
+          "total_events": 6,
+          "correctly_detected": 0,
+          "false_negatives": 6,
+          "coverage_rate": 0.0
+        },
+        "UNKNOWN": {
+          "total_events": 6,
+          "correctly_detected": 6,
+          "false_negatives": 0,
+          "coverage_rate": 1.0
+        }
+      },
+      "artifacts": {
+        "raw_csv": "fault_detection_coverage.csv",
+        "summary_json": "fault_detection_coverage_summary.json"
+      }
+    },
+    "E03": {
+      "experiment_id": "E03-alert-quality-20261003-204805-b95a283c",
+      "experiment_name": "Alert Quality",
+      "experiment_code": "E03",
+      "metadata": {
+        "experiment_id": "E03-alert-quality-20261003-204805-b95a283c",
+        "timestamp": "2026-10-03T20:48:05.819581+00:00",
+        "git_commit_or_version": "38fd6b0",
+        "hostname": "omarchy",
+        "OS": "Linux 7.2.5-3-omarchy (x86_64)",
+        "Python version": "3.14.7",
+        "configuration": {
+          "sample_size": 50,
+          "fault_ratio": 0.5
+        },
+        "system_count": 1,
+        "workload_size": 50,
+        "duration_seconds": 0.0011
+      },
+      "sample_count": 50,
+      "alert_precision": 1.0,
+      "false_positive_rate": 0.0,
+      "recall": 0.84,
+      "f1_score": 0.913,
+      "total_alerts": 21,
+      "true_positives": 21,
+      "false_positives": 0,
+      "true_negatives": 25,
+      "false_negatives": 4,
+      "artifacts": {
+        "raw_csv": "alert_quality.csv",
+        "summary_json": "alert_quality_summary.json"
+      }
+    },
+    "E04": {
+      "experiment_id": "E04-throughput-20261003-204805-6c649257",
+      "experiment_name": "Pipeline Throughput",
+      "experiment_code": "E04",
+      "metadata": {
+        "experiment_id": "E04-throughput-20261003-204805-6c649257",
+        "timestamp": "2026-10-03T20:48:11.827886+00:00",
+        "git_commit_or_version": "38fd6b0",
+        "hostname": "omarchy",
+        "OS": "Linux 7.2.5-3-omarchy (x86_64)",
+        "Python version": "3.14.7",
+        "configuration": {
+          "load_levels": [
+            10,
+            50,
+            100,
+            250
+          ],
+          "duration_per_level": 1.5
+        },
+        "system_count": 1,
+        "workload_size": 615,
+        "duration_seconds": 6.0058
+      },
+      "sample_count": 615,
+      "maximum_sustainable_events_per_sec": 249.65,
+      "load_level_results": [
+        {
+          "target_eps": 10,
+          "actual_input_eps": 10.0,
+          "persisted_eps": 10.0,
+          "events_generated": 15,
+          "events_persisted": 15,
+          "event_loss_percent": 0.0,
+          "p50_latency_ms": 99.996,
+          "p95_latency_ms": 100.033,
+          "p99_latency_ms": 100.057,
+          "db_write_latency_ms": 0.185,
+          "peak_kafka_lag": 1,
+          "sustainable": true
+        },
+        {
+          "target_eps": 50,
+          "actual_input_eps": 49.98,
+          "persisted_eps": 49.98,
+          "events_generated": 75,
+          "events_persisted": 75,
+          "event_loss_percent": 0.0,
+          "p50_latency_ms": 19.993,
+          "p95_latency_ms": 20.192,
+          "p99_latency_ms": 20.315,
+          "db_write_latency_ms": 0.453,
+          "peak_kafka_lag": 1,
+          "sustainable": true
+        },
+        {
+          "target_eps": 100,
+          "actual_input_eps": 99.94,
+          "persisted_eps": 99.94,
+          "events_generated": 150,
+          "events_persisted": 150,
+          "event_loss_percent": 0.0,
+          "p50_latency_ms": 9.993,
+          "p95_latency_ms": 10.102,
+          "p99_latency_ms": 10.225,
+          "db_write_latency_ms": 0.761,
+          "peak_kafka_lag": 1,
+          "sustainable": true
+        },
+        {
+          "target_eps": 250,
+          "actual_input_eps": 249.65,
+          "persisted_eps": 249.65,
+          "events_generated": 375,
+          "events_persisted": 375,
+          "event_loss_percent": 0.0,
+          "p50_latency_ms": 3.998,
+          "p95_latency_ms": 4.114,
+          "p99_latency_ms": 4.31,
+          "db_write_latency_ms": 1.02,
+          "peak_kafka_lag": 1,
+          "sustainable": true
+        }
+      ],
+      "artifacts": {
+        "raw_csv": "throughput_benchmark.csv",
+        "summary_json": "throughput_benchmark_summary.json"
+      }
+    },
+    "E05": {
+      "experiment_id": "E05-kafka-recovery-20261003-204811-d5f30b6d",
+      "experiment_name": "Kafka Failure Recovery",
+      "experiment_code": "E05",
+      "metadata": {
+        "experiment_id": "E05-kafka-recovery-20261003-204811-d5f30b6d",
+        "timestamp": "2026-10-03T20:48:12.336456+00:00",
+        "git_commit_or_version": "38fd6b0",
+        "hostname": "omarchy",
+        "OS": "Linux 7.2.5-3-omarchy (x86_64)",
+        "Python version": "3.14.7",
+        "configuration": {
+          "allow_fault_injection": false,
+          "events_pre_outage": 20,
+          "events_during_outage": 40,
+          "events_post_recovery": 20
+        },
+        "system_count": 1,
+        "workload_size": 80,
+        "duration_seconds": 0.5008
+      },
+      "sample_count": 80,
+      "events_generated_during_outage": 40,
+      "events_buffered_locally": 40,
+      "events_eventually_persisted": 80,
+      "events_lost": 0,
+      "duplicate_events": 0,
+      "delivery_success_rate": 1.0,
+      "recovery_time_seconds": 0.0003,
+      "maximum_queue_backlog": 40,
+      "circuit_breaker_behavior": {
+        "initial_state": "CLOSED",
+        "outage_state": "OPEN",
+        "final_state": "CLOSED"
+      },
+      "artifacts": {
+        "raw_csv": "kafka_recovery.csv",
+        "summary_json": "kafka_recovery_summary.json"
+      }
+    },
+    "E06": {
+      "experiment_id": "E06-postgres-recovery-20261003-204812-ecbafe2f",
+      "experiment_name": "PostgreSQL Failure Recovery",
+      "experiment_code": "E06",
+      "metadata": {
+        "experiment_id": "E06-postgres-recovery-20261003-204812-ecbafe2f",
+        "timestamp": "2026-10-03T20:48:12.840415+00:00",
+        "git_commit_or_version": "38fd6b0",
+        "hostname": "omarchy",
+        "OS": "Linux 7.2.5-3-omarchy (x86_64)",
+        "Python version": "3.14.7",
+        "configuration": {
+          "allow_fault_injection": false,
+          "events_pre_outage": 20,
+          "events_during_outage": 40,
+          "events_post_recovery": 20
+        },
+        "system_count": 1,
+        "workload_size": 80,
+        "duration_seconds": 0.5012
+      },
+      "sample_count": 80,
+      "events_generated": 80,
+      "events_persisted": 80,
+      "persisted_percentage": 100.0,
+      "lost_events": 0,
+      "duplicate_events": 0,
+      "consumer_backlog_peak": 40,
+      "retry_count": 40,
+      "db_recovery_time_seconds": 0.0002,
+      "circuit_breaker_transitions": [
+        "CLOSED",
+        "OPEN",
+        "CLOSED"
+      ],
+      "artifacts": {
+        "raw_csv": "postgres_recovery.csv",
+        "summary_json": "postgres_recovery_summary.json"
+      }
+    },
+    "E07": {
+      "experiment_id": "E07-api-benchmark-20261003-204812-8a7c5dcf",
+      "experiment_name": "API Performance",
+      "experiment_code": "E07",
+      "metadata": {
+        "experiment_id": "E07-api-benchmark-20261003-204812-8a7c5dcf",
+        "timestamp": "2026-10-03T20:48:13.117779+00:00",
+        "git_commit_or_version": "38fd6b0",
+        "hostname": "omarchy",
+        "OS": "Linux 7.2.5-3-omarchy (x86_64)",
+        "Python version": "3.14.7",
+        "configuration": {
+          "endpoints": [
+            "/events",
+            "/systems",
+            "/alerts",
+            "/dashboard-metrics",
+            "/metrics",
+            "/ml/predictions",
+            "/ml/anomalies",
+            "/ml/failure-risk",
+            "/pipeline-health",
+            "/pipeline-health/status"
+          ],
+          "concurrency_levels": [
+            1,
+            10,
+            25
+          ],
+          "requests_per_endpoint": 2,
+          "warmup_requests": 1,
+          "is_asgi_direct": true
+        },
+        "system_count": 1,
+        "workload_size": 60,
+        "duration_seconds": 0.0492
+      },
+      "sample_count": 60,
+      "endpoints_evaluated": [
+        "/events",
+        "/systems",
+        "/alerts",
+        "/dashboard-metrics",
+        "/metrics",
+        "/ml/predictions",
+        "/ml/anomalies",
+        "/ml/failure-risk",
+        "/pipeline-health",
+        "/pipeline-health/status"
+      ],
+      "concurrency_results": [
+        {
+          "concurrency": 1,
+          "total_requests": 20,
+          "duration_seconds": 0.0172,
+          "requests_per_second": 1162.93,
+          "error_rate": 0.0,
+          "timeout_rate": 0.0,
+          "p50_latency_ms": 0.669,
+          "p95_latency_ms": 1.165,
+          "p99_latency_ms": 2.867,
+          "mean_latency_ms": 0.836,
+          "min_latency_ms": 0.607,
+          "max_latency_ms": 3.292
+        },
+        {
+          "concurrency": 10,
+          "total_requests": 20,
+          "duration_seconds": 0.016,
+          "requests_per_second": 1248.47,
+          "error_rate": 0.0,
+          "timeout_rate": 0.0,
+          "p50_latency_ms": 6.579,
+          "p95_latency_ms": 10.673,
+          "p99_latency_ms": 11.385,
+          "mean_latency_ms": 6.728,
+          "min_latency_ms": 2.606,
+          "max_latency_ms": 11.563
+        },
+        {
+          "concurrency": 25,
+          "total_requests": 20,
+          "duration_seconds": 0.0159,
+          "requests_per_second": 1260.04,
+          "error_rate": 0.0,
+          "timeout_rate": 0.0,
+          "p50_latency_ms": 12.934,
+          "p95_latency_ms": 14.507,
+          "p99_latency_ms": 14.598,
+          "mean_latency_ms": 12.63,
+          "min_latency_ms": 10.535,
+          "max_latency_ms": 14.621
+        }
+      ],
+      "artifacts": {
+        "raw_csv": "api_benchmark.csv",
+        "summary_json": "api_benchmark_summary.json"
+      }
+    },
+    "E08": {
+      "experiment_id": "E08-ml-evaluation-20261003-204813-3a3598cd",
+      "experiment_name": "ML Model Evaluation",
+      "experiment_code": "E08",
+      "metadata": {
+        "experiment_id": "E08-ml-evaluation-20261003-204813-3a3598cd",
+        "timestamp": "2026-10-03T20:48:13.289286+00:00",
+        "git_commit_or_version": "38fd6b0",
+        "hostname": "omarchy",
+        "OS": "Linux 7.2.5-3-omarchy (x86_64)",
+        "Python version": "3.14.7",
+        "configuration": {
+          "model_version": "v2-isof",
+          "isolation_forest_config": {
+            "n_estimators": 100,
+            "contamination": 0.05,
+            "random_state": 42,
+            "n_jobs": 1
+          },
+          "total_dataset_size": 250,
+          "train_set_size": 200,
+          "test_set_size": 50,
+          "test_class_distribution": {
+            "anomaly": 10,
+            "normal": 40
+          },
+          "data_source": "Controlled synthetic feature snapshot benchmark generator"
+        },
+        "system_count": 5,
+        "workload_size": 50,
+        "duration_seconds": 0.1654
+      },
+      "sample_count": 50,
+      "data_source_type": "controlled_benchmark_dataset",
+      "model_version": "v2-isof",
+      "precision": 1.0,
+      "recall": 0.3,
+      "f1_score": 0.4615,
+      "false_positive_rate": 0.0,
+      "false_negative_rate": 0.7,
+      "accuracy": 0.86,
+      "roc_auc": 1.0,
+      "confusion_matrix": {
+        "true_positives": 3,
+        "false_positives": 0,
+        "true_negatives": 40,
+        "false_negatives": 7
+      },
+      "artifacts": {
+        "raw_csv": "ml_evaluation.csv",
+        "summary_json": "ml_evaluation_summary.json"
+      }
+    },
+    "E09": {
+      "experiment_id": "E09-lead-time-20261003-204813-1dc882ec",
+      "experiment_name": "ML Prediction Lead Time",
+      "experiment_code": "E09",
+      "metadata": {
+        "experiment_id": "E09-lead-time-20261003-204813-1dc882ec",
+        "timestamp": "2026-10-03T20:48:14.315632+00:00",
+        "git_commit_or_version": "38fd6b0",
+        "hostname": "omarchy",
+        "OS": "Linux 7.2.5-3-omarchy (x86_64)",
+        "Python version": "3.14.7",
+        "configuration": {
+          "incident_count": 15,
+          "simulated_degradation_steps": 25
+        },
+        "system_count": 15,
+        "workload_size": 15,
+        "duration_seconds": 1.0244
+      },
+      "sample_count": 15,
+      "successfully_predicted_failures": 15,
+      "missed_failures": 0,
+      "lead_time_seconds": {
+        "mean": 46.67,
+        "p50": 30.0,
+        "p95": 126.0,
+        "p99": 137.2,
+        "min": 10.0,
+        "max": 140.0,
+        "count": 15
+      },
+      "lead_time_ms": {
+        "count": 15,
+        "mean": 46666.667,
+        "p50": 30000.0,
+        "p95": 126000.0,
+        "p99": 137200.0,
+        "min": 10000.0,
+        "max": 140000.0
+      },
+      "artifacts": {
+        "raw_csv": "prediction_lead_time.csv",
+        "summary_json": "prediction_lead_time_summary.json"
+      }
+    },
+    "E10": {
+      "experiment_id": "E10-overhead-20261003-204814-d55cec02",
+      "experiment_name": "Collector Resource Overhead",
+      "experiment_code": "E10",
+      "metadata": {
+        "experiment_id": "E10-overhead-20261003-204814-d55cec02",
+        "timestamp": "2026-10-03T20:48:23.464976+00:00",
+        "git_commit_or_version": "38fd6b0",
+        "hostname": "omarchy",
+        "OS": "Linux 7.2.5-3-omarchy (x86_64)",
+        "Python version": "3.14.7",
+        "configuration": {
+          "sample_count": 5,
+          "workload_event_count": 100,
+          "measurement_interval_sec": 0.2
+        },
+        "system_count": 1,
+        "workload_size": 100,
+        "duration_seconds": 7.1404
+      },
+      "sample_count": 10,
+      "baseline_system_cpu_percent": 4.6,
+      "collector_cpu_overhead_percentage_points": 0.0,
+      "collector_process_cpu_percent": {
+        "count": 5,
+        "mean": 0.0,
+        "p50": 0.0,
+        "p95": 0.0,
+        "p99": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "collector_memory_overhead_mb": 0.0,
+      "collector_process_memory_mb": {
+        "count": 5,
+        "mean": 239.566,
+        "p50": 239.566,
+        "p95": 239.566,
+        "p99": 239.566,
+        "min": 239.566,
+        "max": 239.566
+      },
+      "network_bytes_transferred": 556890,
+      "disk_bytes_written": 38379520,
+      "events_processed": 100,
+      "artifacts": {
+        "raw_csv": "resource_overhead.csv",
+        "summary_json": "resource_overhead_summary.json"
+      }
+    },
+    "E11": {
+      "experiment_id": "E11-scale-20261003-204823-29edf633",
+      "experiment_name": "Horizontal Scale Test",
+      "experiment_code": "E11",
+      "metadata": {
+        "experiment_id": "E11-scale-20261003-204823-29edf633",
+        "timestamp": "2026-10-03T20:48:23.792702+00:00",
+        "git_commit_or_version": "38fd6b0",
+        "hostname": "omarchy",
+        "OS": "Linux 7.2.5-3-omarchy (x86_64)",
+        "Python version": "3.14.7",
+        "configuration": {
+          "system_counts": [
+            1,
+            5,
+            10,
+            25,
+            50,
+            100
+          ],
+          "events_per_system": 5
+        },
+        "system_count": 100,
+        "workload_size": 46,
+        "duration_seconds": 0.3256
+      },
+      "sample_count": 46,
+      "maximum_tested_scale": 100,
+      "scale_tier_results": [
+        {
+          "systems_monitored": 1,
+          "total_events_generated": 5,
+          "total_events_persisted": 5,
+          "total_events_per_sec": 5548.17,
+          "event_loss_percent": 0.0,
+          "db_p95_write_latency_ms": 0.098,
+          "api_p95_latency_ms": 0.157,
+          "server_cpu_percent": 5.8,
+          "server_memory_mb": 239.57,
+          "kafka_lag": 0,
+          "threshold_passed": true
+        },
+        {
+          "systems_monitored": 5,
+          "total_events_generated": 25,
+          "total_events_persisted": 25,
+          "total_events_per_sec": 23217.48,
+          "event_loss_percent": 0.0,
+          "db_p95_write_latency_ms": 0.227,
+          "api_p95_latency_ms": 0.152,
+          "server_cpu_percent": 4.9,
+          "server_memory_mb": 239.57,
+          "kafka_lag": 0,
+          "threshold_passed": true
+        },
+        {
+          "systems_monitored": 10,
+          "total_events_generated": 50,
+          "total_events_persisted": 50,
+          "total_events_per_sec": 23736.38,
+          "event_loss_percent": 0.0,
+          "db_p95_write_latency_ms": 0.403,
+          "api_p95_latency_ms": 0.156,
+          "server_cpu_percent": 11.7,
+          "server_memory_mb": 239.57,
+          "kafka_lag": 0,
+          "threshold_passed": true
+        },
+        {
+          "systems_monitored": 25,
+          "total_events_generated": 125,
+          "total_events_persisted": 125,
+          "total_events_per_sec": 28973.73,
+          "event_loss_percent": 0.0,
+          "db_p95_write_latency_ms": 0.883,
+          "api_p95_latency_ms": 0.158,
+          "server_cpu_percent": 4.8,
+          "server_memory_mb": 239.57,
+          "kafka_lag": 0,
+          "threshold_passed": true
+        },
+        {
+          "systems_monitored": 50,
+          "total_events_generated": 250,
+          "total_events_persisted": 250,
+          "total_events_per_sec": 45270.84,
+          "event_loss_percent": 0.0,
+          "db_p95_write_latency_ms": 1.772,
+          "api_p95_latency_ms": 0.157,
+          "server_cpu_percent": 7.8,
+          "server_memory_mb": 239.57,
+          "kafka_lag": 0,
+          "threshold_passed": true
+        },
+        {
+          "systems_monitored": 100,
+          "total_events_generated": 500,
+          "total_events_persisted": 500,
+          "total_events_per_sec": 56825.39,
+          "event_loss_percent": 0.0,
+          "db_p95_write_latency_ms": 1.743,
+          "api_p95_latency_ms": 0.158,
+          "server_cpu_percent": 8.9,
+          "server_memory_mb": 239.59,
+          "kafka_lag": 0,
+          "threshold_passed": true
+        }
+      ],
+      "artifacts": {
+        "raw_csv": "scale_test.csv",
+        "summary_json": "scale_test_summary.json"
+      }
+    }
+  },
+  "resume_evidence": {
+    "p95_detection_latency": {
+      "metric_name": "P95 End-to-End Detection Latency",
+      "value": 0.038,
+      "unit": "milliseconds",
+      "sample_count": 50,
+      "experiment_code": "E01",
+      "experiment_id": "E01-latency-20261003-204805-be4f5497",
+      "source_artifact": "detection_latency.csv",
+      "provenance": "Empirically measured ingestion-to-alert processing latency across controlled fault workloads."
+    },
+    "max_sustainable_throughput": {
+      "metric_name": "Maximum Sustainable Pipeline Throughput",
+      "value": 249.65,
+      "unit": "events/second",
+      "sample_count": 615,
+      "experiment_code": "E04",
+      "experiment_id": "E04-throughput-20261003-204805-6c649257",
+      "source_artifact": "throughput_benchmark.csv",
+      "provenance": "Highest EPS level sustained with 0% event loss and bounded latency."
+    },
+    "detection_coverage": {
+      "metric_name": "Fault Detection Coverage",
+      "value": 62.5,
+      "unit": "percent",
+      "sample_count": 48,
+      "experiment_code": "E02",
+      "experiment_id": "E02-coverage-20261003-204805-1fb2194f",
+      "source_artifact": "fault_detection_coverage.csv",
+      "provenance": "Fraction of known controlled fault scenarios accurately classified against ground truth."
+    },
+    "alert_precision": {
+      "metric_name": "Alert Precision",
+      "value": 100.0,
+      "unit": "percent",
+      "sample_count": 50,
+      "experiment_code": "E03",
+      "experiment_id": "E03-alert-quality-20261003-204805-b95a283c",
+      "source_artifact": "alert_quality.csv",
+      "provenance": "Ratio of true-positive alerts over all generated alerts on mixed workload."
+    },
+    "false_positive_rate": {
+      "metric_name": "False-Positive Rate",
+      "value": 0.0,
+      "unit": "percent",
+      "sample_count": 50,
+      "experiment_code": "E03",
+      "experiment_id": "E03-alert-quality-20261003-204805-b95a283c",
+      "source_artifact": "alert_quality.csv",
+      "provenance": "Fraction of benign events mistakenly elevated to alerts."
+    },
+    "telemetry_delivery_success_rate": {
+      "metric_name": "Telemetry Delivery Success Rate During Outage",
+      "value": 100.0,
+      "unit": "percent",
+      "sample_count": 80,
+      "experiment_code": "E05",
+      "experiment_id": "E05-kafka-recovery-20261003-204811-d5f30b6d",
+      "source_artifact": "kafka_recovery.csv",
+      "provenance": "Ratio of unique events persisted after simulated Kafka disconnection via local fallback buffering."
+    },
+    "kafka_recovery_time": {
+      "metric_name": "Kafka Reconnection & Drain Time",
+      "value": 0.0003,
+      "unit": "seconds",
+      "sample_count": 80,
+      "experiment_code": "E05",
+      "experiment_id": "E05-kafka-recovery-20261003-204811-d5f30b6d",
+      "source_artifact": "kafka_recovery.csv",
+      "provenance": "Duration to restore connection and drain buffered telemetry into pipeline."
+    },
+    "postgres_recovery_time": {
+      "metric_name": "PostgreSQL Recovery & Backlog Drain Time",
+      "value": 0.0002,
+      "unit": "seconds",
+      "sample_count": 80,
+      "experiment_code": "E06",
+      "experiment_id": "E06-postgres-recovery-20261003-204812-ecbafe2f",
+      "source_artifact": "postgres_recovery.csv",
+      "provenance": "Duration to resume consumer persistence following database circuit-breaker reset."
+    },
+    "ml_f1_score": {
+      "metric_name": "Isolation Forest Anomaly Detection F1 Score",
+      "value": 0.4615,
+      "unit": "score (0-1)",
+      "sample_count": 50,
+      "experiment_code": "E08",
+      "experiment_id": "E08-ml-evaluation-20261003-204813-3a3598cd",
+      "source_artifact": "ml_evaluation.csv",
+      "provenance": "Harmonic mean of precision and recall evaluated on held-out test data."
+    },
+    "ml_roc_auc": {
+      "metric_name": "ML Anomaly Scoring ROC-AUC",
+      "value": 1.0,
+      "unit": "score (0-1)",
+      "sample_count": 50,
+      "experiment_code": "E08",
+      "experiment_id": "E08-ml-evaluation-20261003-204813-3a3598cd",
+      "source_artifact": "ml_evaluation.csv",
+      "provenance": "Area under the ROC curve for IsolationForest continuous anomaly scores."
+    },
+    "ml_prediction_lead_time": {
+      "metric_name": "Median ML Failure Prediction Lead Time",
+      "value": 30.0,
+      "unit": "seconds",
+      "sample_count": 15,
+      "experiment_code": "E09",
+      "experiment_id": "E09-lead-time-20261003-204813-1dc882ec",
+      "source_artifact": "prediction_lead_time.csv",
+      "provenance": "Median time difference between first valid risk threshold crossing and hard failure timestamp."
+    },
+    "collector_cpu_overhead": {
+      "metric_name": "Collector CPU Overhead",
+      "value": 0.0,
+      "unit": "percentage points",
+      "sample_count": 10,
+      "experiment_code": "E10",
+      "experiment_id": "E10-overhead-20261003-204814-d55cec02",
+      "source_artifact": "resource_overhead.csv",
+      "provenance": "Delta between controlled host baseline and active telemetry collector CPU usage."
+    },
+    "collector_memory_overhead": {
+      "metric_name": "Collector Memory Overhead (RSS)",
+      "value": 0.0,
+      "unit": "megabytes (MB)",
+      "sample_count": 10,
+      "experiment_code": "E10",
+      "experiment_id": "E10-overhead-20261003-204814-d55cec02",
+      "source_artifact": "resource_overhead.csv",
+      "provenance": "Incremental resident memory incurred during active event processing."
+    },
+    "maximum_tested_scale": {
+      "metric_name": "Maximum Experimentally Validated Scale",
+      "value": 100,
+      "unit": "systems",
+      "sample_count": 46,
+      "experiment_code": "E11",
+      "experiment_id": "E11-scale-20261003-204823-29edf633",
+      "source_artifact": "scale_test.csv",
+      "provenance": "Highest system count experimentally tested meeting 0% loss and latency SLA."
+    }
+  }
+}

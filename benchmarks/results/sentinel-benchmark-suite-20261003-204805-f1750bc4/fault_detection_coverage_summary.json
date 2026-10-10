@@ -1,0 +1,87 @@
+{
+  "experiment_id": "E02-coverage-20261003-204805-1fb2194f",
+  "experiment_name": "Fault Detection Coverage",
+  "experiment_code": "E02",
+  "metadata": {
+    "experiment_id": "E02-coverage-20261003-204805-1fb2194f",
+    "timestamp": "2026-10-03T20:48:05.815900+00:00",
+    "git_commit_or_version": "38fd6b0",
+    "hostname": "omarchy",
+    "OS": "Linux 7.2.5-3-omarchy (x86_64)",
+    "Python version": "3.14.7",
+    "configuration": {
+      "sample_size_per_scenario": 6,
+      "scenarios": [
+        "SYSTEM_FAULT",
+        "DRIVER_ISSUE",
+        "RESOURCE_WARNING",
+        "SERVICE_ERROR",
+        "SECURITY_EVENT",
+        "UPDATE_ERROR",
+        "STORAGE_ERROR",
+        "UNKNOWN"
+      ]
+    },
+    "system_count": 1,
+    "workload_size": 48,
+    "duration_seconds": 0.001
+  },
+  "sample_count": 48,
+  "overall_detection_coverage": 0.625,
+  "total_false_negatives": 18,
+  "classification_accuracy": 0.625,
+  "per_class_coverage": {
+    "SYSTEM_FAULT": {
+      "total_events": 6,
+      "correctly_detected": 6,
+      "false_negatives": 0,
+      "coverage_rate": 1.0
+    },
+    "DRIVER_ISSUE": {
+      "total_events": 6,
+      "correctly_detected": 6,
+      "false_negatives": 0,
+      "coverage_rate": 1.0
+    },
+    "RESOURCE_WARNING": {
+      "total_events": 6,
+      "correctly_detected": 0,
+      "false_negatives": 6,
+      "coverage_rate": 0.0
+    },
+    "SERVICE_ERROR": {
+      "total_events": 6,
+      "correctly_detected": 6,
+      "false_negatives": 0,
+      "coverage_rate": 1.0
+    },
+    "SECURITY_EVENT": {
+      "total_events": 6,
+      "correctly_detected": 0,
+      "false_negatives": 6,
+      "coverage_rate": 0.0
+    },
+    "UPDATE_ERROR": {
+      "total_events": 6,
+      "correctly_detected": 6,
+      "false_negatives": 0,
+      "coverage_rate": 1.0
+    },
+    "STORAGE_ERROR": {
+      "total_events": 6,
+      "correctly_detected": 0,
+      "false_negatives": 6,
+      "coverage_rate": 0.0
+    },
+    "UNKNOWN": {
+      "total_events": 6,
+      "correctly_detected": 6,
+      "false_negatives": 0,
+      "coverage_rate": 1.0
+    }
+  },
+  "artifacts": {
+    "raw_csv": "fault_detection_coverage.csv",
+    "summary_json": "fault_detection_coverage_summary.json"
+  }
+}

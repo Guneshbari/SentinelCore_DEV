@@ -1,0 +1,34 @@
+{
+  "experiment_id": "E03-alert-quality-20261003-204805-b95a283c",
+  "experiment_name": "Alert Quality",
+  "experiment_code": "E03",
+  "metadata": {
+    "experiment_id": "E03-alert-quality-20261003-204805-b95a283c",
+    "timestamp": "2026-10-03T20:48:05.819581+00:00",
+    "git_commit_or_version": "38fd6b0",
+    "hostname": "omarchy",
+    "OS": "Linux 7.2.5-3-omarchy (x86_64)",
+    "Python version": "3.14.7",
+    "configuration": {
+      "sample_size": 50,
+      "fault_ratio": 0.5
+    },
+    "system_count": 1,
+    "workload_size": 50,
+    "duration_seconds": 0.0011
+  },
+  "sample_count": 50,
+  "alert_precision": 1.0,
+  "false_positive_rate": 0.0,
+  "recall": 0.84,
+  "f1_score": 0.913,
+  "total_alerts": 21,
+  "true_positives": 21,
+  "false_positives": 0,
+  "true_negatives": 25,
+  "false_negatives": 4,
+  "artifacts": {
+    "raw_csv": "alert_quality.csv",
+    "summary_json": "alert_quality_summary.json"
+  }
+}

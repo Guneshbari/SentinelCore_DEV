@@ -1,0 +1,40 @@
+{
+  "experiment_id": "E05-kafka-recovery-20261003-204811-d5f30b6d",
+  "experiment_name": "Kafka Failure Recovery",
+  "experiment_code": "E05",
+  "metadata": {
+    "experiment_id": "E05-kafka-recovery-20261003-204811-d5f30b6d",
+    "timestamp": "2026-10-03T20:48:12.336456+00:00",
+    "git_commit_or_version": "38fd6b0",
+    "hostname": "omarchy",
+    "OS": "Linux 7.2.5-3-omarchy (x86_64)",
+    "Python version": "3.14.7",
+    "configuration": {
+      "allow_fault_injection": false,
+      "events_pre_outage": 20,
+      "events_during_outage": 40,
+      "events_post_recovery": 20
+    },
+    "system_count": 1,
+    "workload_size": 80,
+    "duration_seconds": 0.5008
+  },
+  "sample_count": 80,
+  "events_generated_during_outage": 40,
+  "events_buffered_locally": 40,
+  "events_eventually_persisted": 80,
+  "events_lost": 0,
+  "duplicate_events": 0,
+  "delivery_success_rate": 1.0,
+  "recovery_time_seconds": 0.0003,
+  "maximum_queue_backlog": 40,
+  "circuit_breaker_behavior": {
+    "initial_state": "CLOSED",
+    "outage_state": "OPEN",
+    "final_state": "CLOSED"
+  },
+  "artifacts": {
+    "raw_csv": "kafka_recovery.csv",
+    "summary_json": "kafka_recovery_summary.json"
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "experiment_id": "E06-postgres-recovery-20261003-204812-ecbafe2f",
+  "experiment_name": "PostgreSQL Failure Recovery",
+  "experiment_code": "E06",
+  "metadata": {
+    "experiment_id": "E06-postgres-recovery-20261003-204812-ecbafe2f",
+    "timestamp": "2026-10-03T20:48:12.840415+00:00",
+    "git_commit_or_version": "38fd6b0",
+    "hostname": "omarchy",
+    "OS": "Linux 7.2.5-3-omarchy (x86_64)",
+    "Python version": "3.14.7",
+    "configuration": {
+      "allow_fault_injection": false,
+      "events_pre_outage": 20,
+      "events_during_outage": 40,
+      "events_post_recovery": 20
+    },
+    "system_count": 1,
+    "workload_size": 80,
+    "duration_seconds": 0.5012
+  },
+  "sample_count": 80,
+  "events_generated": 80,
+  "events_persisted": 80,
+  "persisted_percentage": 100.0,
+  "lost_events": 0,
+  "duplicate_events": 0,
+  "consumer_backlog_peak": 40,
+  "retry_count": 40,
+  "db_recovery_time_seconds": 0.0002,
+  "circuit_breaker_transitions": [
+    "CLOSED",
+    "OPEN",
+    "CLOSED"
+  ],
+  "artifacts": {
+    "raw_csv": "postgres_recovery.csv",
+    "summary_json": "postgres_recovery_summary.json"
+  }
+}
