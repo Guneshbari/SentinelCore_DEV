@@ -279,7 +279,10 @@ export default function SystemsPage() {
     () => groupTrendsBySystem(featureSnapshots, metrics),
     [featureSnapshots, metrics],
   );
-  const selectedTrend = selected ? trendsBySystem[selected.system_id] ?? [] : [];
+  const selectedTrend = useMemo(
+    () => (selected ? trendsBySystem[selected.system_id] ?? [] : []),
+    [selected, trendsBySystem],
+  );
   const selectedStats = useMemo(() => trendStats(selectedTrend), [selectedTrend]);
 
   const onlineCount   = systems.filter((s) => s.status === 'online').length;

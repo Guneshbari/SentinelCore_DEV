@@ -1,24 +1,24 @@
 {
-  "generated_at": "2026-10-03T20:48:23.879594+00:00",
+  "generated_at": "2026-10-22T20:30:45.487630+00:00",
   "overall_metadata": {
-    "timestamp": "2026-10-03T20:48:23.878415+00:00",
-    "git_commit_or_version": "38fd6b0",
+    "timestamp": "2026-10-22T20:30:45.486061+00:00",
+    "git_commit_or_version": "eb22668",
     "hostname": "omarchy",
     "OS": "linux",
-    "Python version": "3.14.7"
+    "Python version": "3.12.14"
   },
   "experiments": {
     "E01": {
-      "experiment_id": "E01-latency-20261003-204805-be4f5497",
-      "experiment_name": "End-to-End Detection Latency",
+      "experiment_id": "E01-latency-20261022-203026-789a52dc",
+      "experiment_name": "In-Memory Telemetry Classification Latency",
       "experiment_code": "E01",
       "metadata": {
-        "experiment_id": "E01-latency-20261003-204805-be4f5497",
-        "timestamp": "2026-10-03T20:48:05.812756+00:00",
-        "git_commit_or_version": "38fd6b0",
+        "experiment_id": "E01-latency-20261022-203026-789a52dc",
+        "timestamp": "2026-10-22T20:30:26.525151+00:00",
+        "git_commit_or_version": "eb22668",
         "hostname": "omarchy",
-        "OS": "Linux 7.2.5-3-omarchy (x86_64)",
-        "Python version": "3.14.7",
+        "OS": "Linux 7.2.8-9-omarchy (x86_64)",
+        "Python version": "3.12.14",
         "configuration": {
           "sample_size": 50,
           "scenarios": [
@@ -30,41 +30,53 @@
             "UPDATE_ERROR",
             "STORAGE_ERROR",
             "UNKNOWN"
-          ]
+          ],
+          "warmup_requests": 5
         },
         "system_count": 1,
         "workload_size": 50,
-        "duration_seconds": 0.0014
+        "duration_seconds": 0.0011
       },
+      "measurement_boundary": "in_memory_only (times in-process classify_event and analyzer.detect_errors; excludes wire transport, Kafka queueing, consumer polling, and PostgreSQL persistence)",
       "sample_count": 50,
+      "warmup_requests": 5,
       "successful_observations": 50,
       "failed_observations": 0,
+      "in_memory_classification_latency_ms": {
+        "count": 50,
+        "mean": 0.017,
+        "p50": 0.018,
+        "p95": 0.025,
+        "p99": 0.034,
+        "min": 0.005,
+        "max": 0.042
+      },
       "detection_latency_ms": {
         "count": 50,
-        "mean": 0.022,
-        "p50": 0.02,
-        "p95": 0.038,
-        "p99": 0.085,
-        "min": 0.006,
-        "max": 0.125
+        "mean": 0.017,
+        "p50": 0.018,
+        "p95": 0.025,
+        "p99": 0.034,
+        "min": 0.005,
+        "max": 0.042
       },
       "end_to_end_latency_ms": {
         "count": 50,
-        "mean": 0.024,
-        "p50": 0.022,
-        "p95": 0.039,
-        "p99": 0.088,
-        "min": 0.006,
-        "max": 0.129
+        "mean": 0.019,
+        "p50": 0.019,
+        "p95": 0.027,
+        "p99": 0.036,
+        "min": 0.005,
+        "max": 0.043
       },
       "event_to_alert_latency_ms": {
         "count": 44,
         "mean": 0.002,
         "p50": 0.001,
         "p95": 0.002,
-        "p99": 0.004,
+        "p99": 0.002,
         "min": 0.001,
-        "max": 0.005
+        "max": 0.003
       },
       "artifacts": {
         "raw_csv": "detection_latency.csv",
@@ -73,16 +85,16 @@
       }
     },
     "E02": {
-      "experiment_id": "E02-coverage-20261003-204805-1fb2194f",
+      "experiment_id": "E02-coverage-20261022-203026-5c373b54",
       "experiment_name": "Fault Detection Coverage",
       "experiment_code": "E02",
       "metadata": {
-        "experiment_id": "E02-coverage-20261003-204805-1fb2194f",
-        "timestamp": "2026-10-03T20:48:05.815900+00:00",
-        "git_commit_or_version": "38fd6b0",
+        "experiment_id": "E02-coverage-20261022-203026-5c373b54",
+        "timestamp": "2026-10-22T20:30:26.529831+00:00",
+        "git_commit_or_version": "eb22668",
         "hostname": "omarchy",
-        "OS": "Linux 7.2.5-3-omarchy (x86_64)",
-        "Python version": "3.14.7",
+        "OS": "Linux 7.2.8-9-omarchy (x86_64)",
+        "Python version": "3.12.14",
         "configuration": {
           "sample_size_per_scenario": 6,
           "scenarios": [
@@ -98,12 +110,12 @@
         },
         "system_count": 1,
         "workload_size": 48,
-        "duration_seconds": 0.001
+        "duration_seconds": 0.0018
       },
       "sample_count": 48,
-      "overall_detection_coverage": 0.625,
-      "total_false_negatives": 18,
-      "classification_accuracy": 0.625,
+      "overall_detection_coverage": 1.0,
+      "total_false_negatives": 0,
+      "classification_accuracy": 1.0,
       "per_class_coverage": {
         "SYSTEM_FAULT": {
           "total_events": 6,
@@ -119,9 +131,9 @@
         },
         "RESOURCE_WARNING": {
           "total_events": 6,
-          "correctly_detected": 0,
-          "false_negatives": 6,
-          "coverage_rate": 0.0
+          "correctly_detected": 6,
+          "false_negatives": 0,
+          "coverage_rate": 1.0
         },
         "SERVICE_ERROR": {
           "total_events": 6,
@@ -131,9 +143,9 @@
         },
         "SECURITY_EVENT": {
           "total_events": 6,
-          "correctly_detected": 0,
-          "false_negatives": 6,
-          "coverage_rate": 0.0
+          "correctly_detected": 6,
+          "false_negatives": 0,
+          "coverage_rate": 1.0
         },
         "UPDATE_ERROR": {
           "total_events": 6,
@@ -143,9 +155,9 @@
         },
         "STORAGE_ERROR": {
           "total_events": 6,
-          "correctly_detected": 0,
-          "false_negatives": 6,
-          "coverage_rate": 0.0
+          "correctly_detected": 6,
+          "false_negatives": 0,
+          "coverage_rate": 1.0
         },
         "UNKNOWN": {
           "total_events": 6,
@@ -160,23 +172,23 @@
       }
     },
     "E03": {
-      "experiment_id": "E03-alert-quality-20261003-204805-b95a283c",
+      "experiment_id": "E03-alert-quality-20261022-203026-f6626898",
       "experiment_name": "Alert Quality",
       "experiment_code": "E03",
       "metadata": {
-        "experiment_id": "E03-alert-quality-20261003-204805-b95a283c",
-        "timestamp": "2026-10-03T20:48:05.819581+00:00",
-        "git_commit_or_version": "38fd6b0",
+        "experiment_id": "E03-alert-quality-20261022-203026-f6626898",
+        "timestamp": "2026-10-22T20:30:26.533567+00:00",
+        "git_commit_or_version": "eb22668",
         "hostname": "omarchy",
-        "OS": "Linux 7.2.5-3-omarchy (x86_64)",
-        "Python version": "3.14.7",
+        "OS": "Linux 7.2.8-9-omarchy (x86_64)",
+        "Python version": "3.12.14",
         "configuration": {
           "sample_size": 50,
           "fault_ratio": 0.5
         },
         "system_count": 1,
         "workload_size": 50,
-        "duration_seconds": 0.0011
+        "duration_seconds": 0.0014
       },
       "sample_count": 50,
       "alert_precision": 1.0,
@@ -194,16 +206,16 @@
       }
     },
     "E04": {
-      "experiment_id": "E04-throughput-20261003-204805-6c649257",
+      "experiment_id": "E04-throughput-20261022-203026-7b885887",
       "experiment_name": "Pipeline Throughput",
       "experiment_code": "E04",
       "metadata": {
-        "experiment_id": "E04-throughput-20261003-204805-6c649257",
-        "timestamp": "2026-10-03T20:48:11.827886+00:00",
-        "git_commit_or_version": "38fd6b0",
+        "experiment_id": "E04-throughput-20261022-203026-7b885887",
+        "timestamp": "2026-10-22T20:30:32.607596+00:00",
+        "git_commit_or_version": "eb22668",
         "hostname": "omarchy",
-        "OS": "Linux 7.2.5-3-omarchy (x86_64)",
-        "Python version": "3.14.7",
+        "OS": "Linux 7.2.8-9-omarchy (x86_64)",
+        "Python version": "3.12.14",
         "configuration": {
           "load_levels": [
             10,
@@ -215,66 +227,71 @@
         },
         "system_count": 1,
         "workload_size": 615,
-        "duration_seconds": 6.0058
+        "duration_seconds": 6.0719
       },
+      "persistence_backend": "live_postgresql",
       "sample_count": 615,
-      "maximum_sustainable_events_per_sec": 249.65,
+      "maximum_sustainable_events_per_sec": 247.41,
       "load_level_results": [
         {
           "target_eps": 10,
-          "actual_input_eps": 10.0,
-          "persisted_eps": 10.0,
+          "actual_input_eps": 9.93,
+          "persisted_eps": 9.93,
           "events_generated": 15,
           "events_persisted": 15,
           "event_loss_percent": 0.0,
-          "p50_latency_ms": 99.996,
-          "p95_latency_ms": 100.033,
-          "p99_latency_ms": 100.057,
-          "db_write_latency_ms": 0.185,
+          "p50_latency_ms": 100.005,
+          "p95_latency_ms": 100.137,
+          "p99_latency_ms": 100.141,
+          "db_write_latency_ms": 10.659,
           "peak_kafka_lag": 1,
-          "sustainable": true
+          "sustainable": true,
+          "persistence_backend": "live_postgresql"
         },
         {
           "target_eps": 50,
-          "actual_input_eps": 49.98,
-          "persisted_eps": 49.98,
+          "actual_input_eps": 49.64,
+          "persisted_eps": 49.64,
           "events_generated": 75,
           "events_persisted": 75,
           "event_loss_percent": 0.0,
-          "p50_latency_ms": 19.993,
-          "p95_latency_ms": 20.192,
-          "p99_latency_ms": 20.315,
-          "db_write_latency_ms": 0.453,
+          "p50_latency_ms": 19.996,
+          "p95_latency_ms": 20.095,
+          "p99_latency_ms": 20.345,
+          "db_write_latency_ms": 10.637,
           "peak_kafka_lag": 1,
-          "sustainable": true
+          "sustainable": true,
+          "persistence_backend": "live_postgresql"
         },
         {
           "target_eps": 100,
-          "actual_input_eps": 99.94,
-          "persisted_eps": 99.94,
+          "actual_input_eps": 99.24,
+          "persisted_eps": 99.24,
           "events_generated": 150,
           "events_persisted": 150,
           "event_loss_percent": 0.0,
-          "p50_latency_ms": 9.993,
-          "p95_latency_ms": 10.102,
-          "p99_latency_ms": 10.225,
-          "db_write_latency_ms": 0.761,
+          "p50_latency_ms": 9.997,
+          "p95_latency_ms": 10.08,
+          "p99_latency_ms": 10.26,
+          "db_write_latency_ms": 11.228,
           "peak_kafka_lag": 1,
-          "sustainable": true
+          "sustainable": true,
+          "persistence_backend": "live_postgresql"
         },
         {
           "target_eps": 250,
-          "actual_input_eps": 249.65,
-          "persisted_eps": 249.65,
+          "actual_input_eps": 247.41,
+          "persisted_eps": 247.41,
           "events_generated": 375,
           "events_persisted": 375,
           "event_loss_percent": 0.0,
-          "p50_latency_ms": 3.998,
-          "p95_latency_ms": 4.114,
-          "p99_latency_ms": 4.31,
-          "db_write_latency_ms": 1.02,
+          "p50_latency_ms": 3.999,
+          "p95_latency_ms": 4.082,
+          "p99_latency_ms": 4.311,
+          "db_write_latency_ms": 7.604,
           "peak_kafka_lag": 1,
-          "sustainable": true
+          "sustainable": true,
+          "persistence_backend": "live_postgresql"
         }
       ],
       "artifacts": {
@@ -283,16 +300,16 @@
       }
     },
     "E05": {
-      "experiment_id": "E05-kafka-recovery-20261003-204811-d5f30b6d",
-      "experiment_name": "Kafka Failure Recovery",
+      "experiment_id": "E05-kafka-recovery-20261022-203032-1f113f47",
+      "experiment_name": "Kafka Fallback Buffer Simulation (In-Process)",
       "experiment_code": "E05",
       "metadata": {
-        "experiment_id": "E05-kafka-recovery-20261003-204811-d5f30b6d",
-        "timestamp": "2026-10-03T20:48:12.336456+00:00",
-        "git_commit_or_version": "38fd6b0",
+        "experiment_id": "E05-kafka-recovery-20261022-203032-1f113f47",
+        "timestamp": "2026-10-22T20:30:33.116533+00:00",
+        "git_commit_or_version": "eb22668",
         "hostname": "omarchy",
-        "OS": "Linux 7.2.5-3-omarchy (x86_64)",
-        "Python version": "3.14.7",
+        "OS": "Linux 7.2.8-9-omarchy (x86_64)",
+        "Python version": "3.12.14",
         "configuration": {
           "allow_fault_injection": false,
           "events_pre_outage": 20,
@@ -301,8 +318,10 @@
         },
         "system_count": 1,
         "workload_size": 80,
-        "duration_seconds": 0.5008
+        "duration_seconds": 0.5011
       },
+      "simulation_mode": true,
+      "measurement_scope": "in_memory_queue_buffering_and_circuit_breaker_simulation",
       "sample_count": 80,
       "events_generated_during_outage": 40,
       "events_buffered_locally": 40,
@@ -323,16 +342,16 @@
       }
     },
     "E06": {
-      "experiment_id": "E06-postgres-recovery-20261003-204812-ecbafe2f",
-      "experiment_name": "PostgreSQL Failure Recovery",
+      "experiment_id": "E06-postgres-recovery-20261022-203033-54675225",
+      "experiment_name": "PostgreSQL Backlog Queue Simulation (In-Process)",
       "experiment_code": "E06",
       "metadata": {
-        "experiment_id": "E06-postgres-recovery-20261003-204812-ecbafe2f",
-        "timestamp": "2026-10-03T20:48:12.840415+00:00",
-        "git_commit_or_version": "38fd6b0",
+        "experiment_id": "E06-postgres-recovery-20261022-203033-54675225",
+        "timestamp": "2026-10-22T20:30:33.619660+00:00",
+        "git_commit_or_version": "eb22668",
         "hostname": "omarchy",
-        "OS": "Linux 7.2.5-3-omarchy (x86_64)",
-        "Python version": "3.14.7",
+        "OS": "Linux 7.2.8-9-omarchy (x86_64)",
+        "Python version": "3.12.14",
         "configuration": {
           "allow_fault_injection": false,
           "events_pre_outage": 20,
@@ -341,8 +360,10 @@
         },
         "system_count": 1,
         "workload_size": 80,
-        "duration_seconds": 0.5012
+        "duration_seconds": 0.5006
       },
+      "simulation_mode": true,
+      "measurement_scope": "in_memory_consumer_queue_buffering_and_circuit_breaker_simulation",
       "sample_count": 80,
       "events_generated": 80,
       "events_persisted": 80,
@@ -363,16 +384,16 @@
       }
     },
     "E07": {
-      "experiment_id": "E07-api-benchmark-20261003-204812-8a7c5dcf",
-      "experiment_name": "API Performance",
+      "experiment_id": "E07-api-benchmark-20261022-203033-07f30fe0",
+      "experiment_name": "FastAPI Middleware & Routing Latency",
       "experiment_code": "E07",
       "metadata": {
-        "experiment_id": "E07-api-benchmark-20261003-204812-8a7c5dcf",
-        "timestamp": "2026-10-03T20:48:13.117779+00:00",
-        "git_commit_or_version": "38fd6b0",
+        "experiment_id": "E07-api-benchmark-20261022-203033-07f30fe0",
+        "timestamp": "2026-10-22T20:30:33.895057+00:00",
+        "git_commit_or_version": "eb22668",
         "hostname": "omarchy",
-        "OS": "Linux 7.2.5-3-omarchy (x86_64)",
-        "Python version": "3.14.7",
+        "OS": "Linux 7.2.8-9-omarchy (x86_64)",
+        "Python version": "3.12.14",
         "configuration": {
           "endpoints": [
             "/events",
@@ -397,8 +418,10 @@
         },
         "system_count": 1,
         "workload_size": 60,
-        "duration_seconds": 0.0492
+        "duration_seconds": 0.0508
       },
+      "database_backend": "in_memory_mock_fixtures",
+      "measurement_scope": "asgi_direct_client_routing_and_serialization (database queries isolated via in-memory mocks)",
       "sample_count": 60,
       "endpoints_evaluated": [
         "/events",
@@ -416,44 +439,44 @@
         {
           "concurrency": 1,
           "total_requests": 20,
-          "duration_seconds": 0.0172,
-          "requests_per_second": 1162.93,
+          "duration_seconds": 0.0214,
+          "requests_per_second": 932.45,
           "error_rate": 0.0,
           "timeout_rate": 0.0,
-          "p50_latency_ms": 0.669,
-          "p95_latency_ms": 1.165,
-          "p99_latency_ms": 2.867,
-          "mean_latency_ms": 0.836,
-          "min_latency_ms": 0.607,
-          "max_latency_ms": 3.292
+          "p50_latency_ms": 1.043,
+          "p95_latency_ms": 1.235,
+          "p99_latency_ms": 1.237,
+          "mean_latency_ms": 1.039,
+          "min_latency_ms": 0.774,
+          "max_latency_ms": 1.238
         },
         {
           "concurrency": 10,
           "total_requests": 20,
-          "duration_seconds": 0.016,
-          "requests_per_second": 1248.47,
+          "duration_seconds": 0.0164,
+          "requests_per_second": 1216.75,
           "error_rate": 0.0,
           "timeout_rate": 0.0,
-          "p50_latency_ms": 6.579,
-          "p95_latency_ms": 10.673,
-          "p99_latency_ms": 11.385,
-          "mean_latency_ms": 6.728,
-          "min_latency_ms": 2.606,
-          "max_latency_ms": 11.563
+          "p50_latency_ms": 6.104,
+          "p95_latency_ms": 10.521,
+          "p99_latency_ms": 11.168,
+          "mean_latency_ms": 6.688,
+          "min_latency_ms": 2.398,
+          "max_latency_ms": 11.329
         },
         {
           "concurrency": 25,
           "total_requests": 20,
-          "duration_seconds": 0.0159,
-          "requests_per_second": 1260.04,
+          "duration_seconds": 0.0129,
+          "requests_per_second": 1553.69,
           "error_rate": 0.0,
           "timeout_rate": 0.0,
-          "p50_latency_ms": 12.934,
-          "p95_latency_ms": 14.507,
-          "p99_latency_ms": 14.598,
-          "mean_latency_ms": 12.63,
-          "min_latency_ms": 10.535,
-          "max_latency_ms": 14.621
+          "p50_latency_ms": 10.085,
+          "p95_latency_ms": 11.223,
+          "p99_latency_ms": 11.445,
+          "mean_latency_ms": 9.76,
+          "min_latency_ms": 7.802,
+          "max_latency_ms": 11.501
         }
       ],
       "artifacts": {
@@ -462,16 +485,16 @@
       }
     },
     "E08": {
-      "experiment_id": "E08-ml-evaluation-20261003-204813-3a3598cd",
+      "experiment_id": "E08-ml-evaluation-20261022-203033-cd820d02",
       "experiment_name": "ML Model Evaluation",
       "experiment_code": "E08",
       "metadata": {
-        "experiment_id": "E08-ml-evaluation-20261003-204813-3a3598cd",
-        "timestamp": "2026-10-03T20:48:13.289286+00:00",
-        "git_commit_or_version": "38fd6b0",
+        "experiment_id": "E08-ml-evaluation-20261022-203033-cd820d02",
+        "timestamp": "2026-10-22T20:30:34.017889+00:00",
+        "git_commit_or_version": "eb22668",
         "hostname": "omarchy",
-        "OS": "Linux 7.2.5-3-omarchy (x86_64)",
-        "Python version": "3.14.7",
+        "OS": "Linux 7.2.8-9-omarchy (x86_64)",
+        "Python version": "3.12.14",
         "configuration": {
           "model_version": "v2-isof",
           "isolation_forest_config": {
@@ -481,8 +504,10 @@
             "n_jobs": 1
           },
           "total_dataset_size": 250,
-          "train_set_size": 200,
+          "train_set_size": 150,
+          "val_set_size": 50,
           "test_set_size": 50,
+          "seed": 42,
           "test_class_distribution": {
             "anomaly": 10,
             "normal": 40
@@ -491,68 +516,95 @@
         },
         "system_count": 5,
         "workload_size": 50,
-        "duration_seconds": 0.1654
+        "duration_seconds": 0.1172
       },
       "sample_count": 50,
       "data_source_type": "controlled_benchmark_dataset",
       "model_version": "v2-isof",
       "precision": 1.0,
-      "recall": 0.3,
-      "f1_score": 0.4615,
+      "recall": 0.5,
+      "f1_score": 0.6667,
       "false_positive_rate": 0.0,
-      "false_negative_rate": 0.7,
-      "accuracy": 0.86,
+      "false_negative_rate": 0.5,
+      "accuracy": 0.9,
       "roc_auc": 1.0,
+      "pr_auc": 1.0,
       "confusion_matrix": {
-        "true_positives": 3,
+        "true_positives": 5,
         "false_positives": 0,
         "true_negatives": 40,
-        "false_negatives": 7
+        "false_negatives": 5
       },
+      "validation_tuned_evaluation": {
+        "tuned_threshold": 0.46,
+        "val_f1": 1.0,
+        "test_precision": 0.8333,
+        "test_recall": 1.0,
+        "test_f1": 0.9091,
+        "test_confusion_matrix": {
+          "true_positives": 10,
+          "false_positives": 2,
+          "true_negatives": 38,
+          "false_negatives": 0
+        }
+      },
+      "baseline_comparison": {
+        "baseline_type": "heuristic_threshold_rule",
+        "test_precision": 1.0,
+        "test_recall": 0.9,
+        "test_f1": 0.9474,
+        "test_confusion_matrix": {
+          "true_positives": 9,
+          "false_positives": 0,
+          "true_negatives": 40,
+          "false_negatives": 1
+        }
+      },
+      "evaluation_notes": "Model fitted exclusively on train_data. Decision threshold selected on val_data only. Default IsolationForest predict() uses contamination=0.05, which bounds default recall on a 15% anomaly workload to ~33-50%. Calibrating threshold on validation data achieves improved recall without test leakage.",
       "artifacts": {
         "raw_csv": "ml_evaluation.csv",
         "summary_json": "ml_evaluation_summary.json"
       }
     },
     "E09": {
-      "experiment_id": "E09-lead-time-20261003-204813-1dc882ec",
+      "experiment_id": "E09-lead-time-20261022-203034-9c74a4aa",
       "experiment_name": "ML Prediction Lead Time",
       "experiment_code": "E09",
       "metadata": {
-        "experiment_id": "E09-lead-time-20261003-204813-1dc882ec",
-        "timestamp": "2026-10-03T20:48:14.315632+00:00",
-        "git_commit_or_version": "38fd6b0",
+        "experiment_id": "E09-lead-time-20261022-203034-9c74a4aa",
+        "timestamp": "2026-10-22T20:30:35.065531+00:00",
+        "git_commit_or_version": "eb22668",
         "hostname": "omarchy",
-        "OS": "Linux 7.2.5-3-omarchy (x86_64)",
-        "Python version": "3.14.7",
+        "OS": "Linux 7.2.8-9-omarchy (x86_64)",
+        "Python version": "3.12.14",
         "configuration": {
           "incident_count": 15,
           "simulated_degradation_steps": 25
         },
         "system_count": 15,
         "workload_size": 15,
-        "duration_seconds": 1.0244
+        "duration_seconds": 1.0446
       },
       "sample_count": 15,
       "successfully_predicted_failures": 15,
       "missed_failures": 0,
       "lead_time_seconds": {
-        "mean": 46.67,
+        "mean": 50.67,
         "p50": 30.0,
-        "p95": 126.0,
-        "p99": 137.2,
+        "p95": 123.0,
+        "p99": 128.6,
         "min": 10.0,
-        "max": 140.0,
+        "max": 130.0,
         "count": 15
       },
       "lead_time_ms": {
         "count": 15,
-        "mean": 46666.667,
+        "mean": 50666.667,
         "p50": 30000.0,
-        "p95": 126000.0,
-        "p99": 137200.0,
+        "p95": 123000.0,
+        "p99": 128600.0,
         "min": 10000.0,
-        "max": 140000.0
+        "max": 130000.0
       },
       "artifacts": {
         "raw_csv": "prediction_lead_time.csv",
@@ -560,27 +612,29 @@
       }
     },
     "E10": {
-      "experiment_id": "E10-overhead-20261003-204814-d55cec02",
+      "experiment_id": "E10-overhead-20261022-203035-99fed25e",
       "experiment_name": "Collector Resource Overhead",
       "experiment_code": "E10",
       "metadata": {
-        "experiment_id": "E10-overhead-20261003-204814-d55cec02",
-        "timestamp": "2026-10-03T20:48:23.464976+00:00",
-        "git_commit_or_version": "38fd6b0",
+        "experiment_id": "E10-overhead-20261022-203035-99fed25e",
+        "timestamp": "2026-10-22T20:30:45.094028+00:00",
+        "git_commit_or_version": "eb22668",
         "hostname": "omarchy",
-        "OS": "Linux 7.2.5-3-omarchy (x86_64)",
-        "Python version": "3.14.7",
+        "OS": "Linux 7.2.8-9-omarchy (x86_64)",
+        "Python version": "3.12.14",
         "configuration": {
           "sample_count": 5,
           "workload_event_count": 100,
-          "measurement_interval_sec": 0.2
+          "measurement_interval_sec": 0.2,
+          "measurement_mode": "standalone_subprocess_rss"
         },
         "system_count": 1,
         "workload_size": 100,
-        "duration_seconds": 7.1404
+        "duration_seconds": 7.0527
       },
+      "measurement_mode": "standalone_subprocess_rss",
       "sample_count": 10,
-      "baseline_system_cpu_percent": 4.6,
+      "baseline_system_cpu_percent": 4.32,
       "collector_cpu_overhead_percentage_points": 0.0,
       "collector_process_cpu_percent": {
         "count": 5,
@@ -591,18 +645,19 @@
         "min": 0.0,
         "max": 0.0
       },
-      "collector_memory_overhead_mb": 0.0,
+      "collector_memory_overhead_mb": 37.77,
+      "standalone_agent_rss_mb": 37.77,
       "collector_process_memory_mb": {
         "count": 5,
-        "mean": 239.566,
-        "p50": 239.566,
-        "p95": 239.566,
-        "p99": 239.566,
-        "min": 239.566,
-        "max": 239.566
+        "mean": 211.812,
+        "p50": 211.812,
+        "p95": 211.812,
+        "p99": 211.812,
+        "min": 211.812,
+        "max": 211.812
       },
-      "network_bytes_transferred": 556890,
-      "disk_bytes_written": 38379520,
+      "network_bytes_transferred": 1241121,
+      "disk_bytes_written": 41709568,
       "events_processed": 100,
       "artifacts": {
         "raw_csv": "resource_overhead.csv",
@@ -610,16 +665,16 @@
       }
     },
     "E11": {
-      "experiment_id": "E11-scale-20261003-204823-29edf633",
-      "experiment_name": "Horizontal Scale Test",
+      "experiment_id": "E11-scale-20261022-203045-1c10bea4",
+      "experiment_name": "Multi-Tenant Key Partitioning Simulation",
       "experiment_code": "E11",
       "metadata": {
-        "experiment_id": "E11-scale-20261003-204823-29edf633",
-        "timestamp": "2026-10-03T20:48:23.792702+00:00",
-        "git_commit_or_version": "38fd6b0",
+        "experiment_id": "E11-scale-20261022-203045-1c10bea4",
+        "timestamp": "2026-10-22T20:30:45.420780+00:00",
+        "git_commit_or_version": "eb22668",
         "hostname": "omarchy",
-        "OS": "Linux 7.2.5-3-omarchy (x86_64)",
-        "Python version": "3.14.7",
+        "OS": "Linux 7.2.8-9-omarchy (x86_64)",
+        "Python version": "3.12.14",
         "configuration": {
           "system_counts": [
             1,
@@ -633,8 +688,10 @@
         },
         "system_count": 100,
         "workload_size": 46,
-        "duration_seconds": 0.3256
+        "duration_seconds": 0.3244
       },
+      "validation_scope": "in_process_multi_tenant_simulation",
+      "distributed_fleet_scale_status": "UNVERIFIED (Single-process data-structure simulation; real distributed fleet scale not tested)",
       "sample_count": 46,
       "maximum_tested_scale": 100,
       "scale_tier_results": [
@@ -642,12 +699,12 @@
           "systems_monitored": 1,
           "total_events_generated": 5,
           "total_events_persisted": 5,
-          "total_events_per_sec": 5548.17,
+          "total_events_per_sec": 5390.51,
           "event_loss_percent": 0.0,
-          "db_p95_write_latency_ms": 0.098,
-          "api_p95_latency_ms": 0.157,
-          "server_cpu_percent": 5.8,
-          "server_memory_mb": 239.57,
+          "db_p95_write_latency_ms": 0.101,
+          "api_p95_latency_ms": 0.155,
+          "server_cpu_percent": 2.9,
+          "server_memory_mb": 211.81,
           "kafka_lag": 0,
           "threshold_passed": true
         },
@@ -655,12 +712,12 @@
           "systems_monitored": 5,
           "total_events_generated": 25,
           "total_events_persisted": 25,
-          "total_events_per_sec": 23217.48,
+          "total_events_per_sec": 21979.74,
           "event_loss_percent": 0.0,
-          "db_p95_write_latency_ms": 0.227,
-          "api_p95_latency_ms": 0.152,
-          "server_cpu_percent": 4.9,
-          "server_memory_mb": 239.57,
+          "db_p95_write_latency_ms": 0.232,
+          "api_p95_latency_ms": 0.154,
+          "server_cpu_percent": 1.9,
+          "server_memory_mb": 211.81,
           "kafka_lag": 0,
           "threshold_passed": true
         },
@@ -668,12 +725,12 @@
           "systems_monitored": 10,
           "total_events_generated": 50,
           "total_events_persisted": 50,
-          "total_events_per_sec": 23736.38,
+          "total_events_per_sec": 23227.97,
           "event_loss_percent": 0.0,
-          "db_p95_write_latency_ms": 0.403,
-          "api_p95_latency_ms": 0.156,
-          "server_cpu_percent": 11.7,
-          "server_memory_mb": 239.57,
+          "db_p95_write_latency_ms": 0.395,
+          "api_p95_latency_ms": 0.153,
+          "server_cpu_percent": 3.0,
+          "server_memory_mb": 211.81,
           "kafka_lag": 0,
           "threshold_passed": true
         },
@@ -681,12 +738,12 @@
           "systems_monitored": 25,
           "total_events_generated": 125,
           "total_events_persisted": 125,
-          "total_events_per_sec": 28973.73,
+          "total_events_per_sec": 28004.97,
           "event_loss_percent": 0.0,
-          "db_p95_write_latency_ms": 0.883,
-          "api_p95_latency_ms": 0.158,
-          "server_cpu_percent": 4.8,
-          "server_memory_mb": 239.57,
+          "db_p95_write_latency_ms": 0.863,
+          "api_p95_latency_ms": 0.161,
+          "server_cpu_percent": 1.0,
+          "server_memory_mb": 211.82,
           "kafka_lag": 0,
           "threshold_passed": true
         },
@@ -694,12 +751,12 @@
           "systems_monitored": 50,
           "total_events_generated": 250,
           "total_events_persisted": 250,
-          "total_events_per_sec": 45270.84,
+          "total_events_per_sec": 46262.41,
           "event_loss_percent": 0.0,
-          "db_p95_write_latency_ms": 1.772,
-          "api_p95_latency_ms": 0.157,
-          "server_cpu_percent": 7.8,
-          "server_memory_mb": 239.57,
+          "db_p95_write_latency_ms": 1.654,
+          "api_p95_latency_ms": 0.159,
+          "server_cpu_percent": 2.9,
+          "server_memory_mb": 211.82,
           "kafka_lag": 0,
           "threshold_passed": true
         },
@@ -707,12 +764,12 @@
           "systems_monitored": 100,
           "total_events_generated": 500,
           "total_events_persisted": 500,
-          "total_events_per_sec": 56825.39,
+          "total_events_per_sec": 66990.59,
           "event_loss_percent": 0.0,
-          "db_p95_write_latency_ms": 1.743,
+          "db_p95_write_latency_ms": 1.65,
           "api_p95_latency_ms": 0.158,
-          "server_cpu_percent": 8.9,
-          "server_memory_mb": 239.59,
+          "server_cpu_percent": 2.9,
+          "server_memory_mb": 211.82,
           "kafka_lag": 0,
           "threshold_passed": true
         }
@@ -725,34 +782,34 @@
   },
   "resume_evidence": {
     "p95_detection_latency": {
-      "metric_name": "P95 End-to-End Detection Latency",
-      "value": 0.038,
+      "metric_name": "In-Memory Classification Latency (P95) [formerly P95 End-to-End Detection Latency]",
+      "value": 0.025,
       "unit": "milliseconds",
       "sample_count": 50,
       "experiment_code": "E01",
-      "experiment_id": "E01-latency-20261003-204805-be4f5497",
+      "experiment_id": "E01-latency-20261022-203026-789a52dc",
       "source_artifact": "detection_latency.csv",
-      "provenance": "Empirically measured ingestion-to-alert processing latency across controlled fault workloads."
+      "provenance": "In-memory classification and detection latency across controlled fault workloads (excludes network transit, Kafka buffering, consumer polling, and PostgreSQL persistence)."
     },
     "max_sustainable_throughput": {
       "metric_name": "Maximum Sustainable Pipeline Throughput",
-      "value": 249.65,
+      "value": 247.41,
       "unit": "events/second",
       "sample_count": 615,
       "experiment_code": "E04",
-      "experiment_id": "E04-throughput-20261003-204805-6c649257",
+      "experiment_id": "E04-throughput-20261022-203026-7b885887",
       "source_artifact": "throughput_benchmark.csv",
-      "provenance": "Highest EPS level sustained with 0% event loss and bounded latency."
+      "provenance": "Highest EPS level sustained with 0% event loss and bounded latency (live_postgresql)."
     },
     "detection_coverage": {
-      "metric_name": "Fault Detection Coverage",
-      "value": 62.5,
+      "metric_name": "Fault Detection Coverage Across 8 Controlled Scenarios",
+      "value": 100.0,
       "unit": "percent",
       "sample_count": 48,
       "experiment_code": "E02",
-      "experiment_id": "E02-coverage-20261003-204805-1fb2194f",
+      "experiment_id": "E02-coverage-20261022-203026-5c373b54",
       "source_artifact": "fault_detection_coverage.csv",
-      "provenance": "Fraction of known controlled fault scenarios accurately classified against ground truth."
+      "provenance": "Fraction of known controlled fault scenarios accurately classified against ground truth across all 8 Windows fault types."
     },
     "alert_precision": {
       "metric_name": "Alert Precision",
@@ -760,7 +817,7 @@
       "unit": "percent",
       "sample_count": 50,
       "experiment_code": "E03",
-      "experiment_id": "E03-alert-quality-20261003-204805-b95a283c",
+      "experiment_id": "E03-alert-quality-20261022-203026-f6626898",
       "source_artifact": "alert_quality.csv",
       "provenance": "Ratio of true-positive alerts over all generated alerts on mixed workload."
     },
@@ -770,29 +827,29 @@
       "unit": "percent",
       "sample_count": 50,
       "experiment_code": "E03",
-      "experiment_id": "E03-alert-quality-20261003-204805-b95a283c",
+      "experiment_id": "E03-alert-quality-20261022-203026-f6626898",
       "source_artifact": "alert_quality.csv",
       "provenance": "Fraction of benign events mistakenly elevated to alerts."
     },
     "telemetry_delivery_success_rate": {
-      "metric_name": "Telemetry Delivery Success Rate During Outage",
+      "metric_name": "Telemetry Delivery Success Rate During Outage (In-Process Simulation)",
       "value": 100.0,
       "unit": "percent",
       "sample_count": 80,
       "experiment_code": "E05",
-      "experiment_id": "E05-kafka-recovery-20261003-204811-d5f30b6d",
+      "experiment_id": "E05-kafka-recovery-20261022-203032-1f113f47",
       "source_artifact": "kafka_recovery.csv",
       "provenance": "Ratio of unique events persisted after simulated Kafka disconnection via local fallback buffering."
     },
     "kafka_recovery_time": {
-      "metric_name": "Kafka Reconnection & Drain Time",
+      "metric_name": "Kafka Fallback Buffer Drain Time (In-Memory Simulation)",
       "value": 0.0003,
       "unit": "seconds",
       "sample_count": 80,
       "experiment_code": "E05",
-      "experiment_id": "E05-kafka-recovery-20261003-204811-d5f30b6d",
+      "experiment_id": "E05-kafka-recovery-20261022-203032-1f113f47",
       "source_artifact": "kafka_recovery.csv",
-      "provenance": "Duration to restore connection and drain buffered telemetry into pipeline."
+      "provenance": "Duration to drain local memory fallback queue into pipeline (in-process simulation)."
     },
     "postgres_recovery_time": {
       "metric_name": "PostgreSQL Recovery & Backlog Drain Time",
@@ -800,17 +857,17 @@
       "unit": "seconds",
       "sample_count": 80,
       "experiment_code": "E06",
-      "experiment_id": "E06-postgres-recovery-20261003-204812-ecbafe2f",
+      "experiment_id": "E06-postgres-recovery-20261022-203033-54675225",
       "source_artifact": "postgres_recovery.csv",
       "provenance": "Duration to resume consumer persistence following database circuit-breaker reset."
     },
     "ml_f1_score": {
       "metric_name": "Isolation Forest Anomaly Detection F1 Score",
-      "value": 0.4615,
+      "value": 0.6667,
       "unit": "score (0-1)",
       "sample_count": 50,
       "experiment_code": "E08",
-      "experiment_id": "E08-ml-evaluation-20261003-204813-3a3598cd",
+      "experiment_id": "E08-ml-evaluation-20261022-203033-cd820d02",
       "source_artifact": "ml_evaluation.csv",
       "provenance": "Harmonic mean of precision and recall evaluated on held-out test data."
     },
@@ -820,7 +877,7 @@
       "unit": "score (0-1)",
       "sample_count": 50,
       "experiment_code": "E08",
-      "experiment_id": "E08-ml-evaluation-20261003-204813-3a3598cd",
+      "experiment_id": "E08-ml-evaluation-20261022-203033-cd820d02",
       "source_artifact": "ml_evaluation.csv",
       "provenance": "Area under the ROC curve for IsolationForest continuous anomaly scores."
     },
@@ -830,7 +887,7 @@
       "unit": "seconds",
       "sample_count": 15,
       "experiment_code": "E09",
-      "experiment_id": "E09-lead-time-20261003-204813-1dc882ec",
+      "experiment_id": "E09-lead-time-20261022-203034-9c74a4aa",
       "source_artifact": "prediction_lead_time.csv",
       "provenance": "Median time difference between first valid risk threshold crossing and hard failure timestamp."
     },
@@ -840,29 +897,29 @@
       "unit": "percentage points",
       "sample_count": 10,
       "experiment_code": "E10",
-      "experiment_id": "E10-overhead-20261003-204814-d55cec02",
+      "experiment_id": "E10-overhead-20261022-203035-99fed25e",
       "source_artifact": "resource_overhead.csv",
       "provenance": "Delta between controlled host baseline and active telemetry collector CPU usage."
     },
     "collector_memory_overhead": {
-      "metric_name": "Collector Memory Overhead (RSS)",
-      "value": 0.0,
-      "unit": "megabytes (MB)",
+      "metric_name": "Collector Process Memory (RSS)",
+      "value": 37.77,
+      "unit": "megabytes (MB) RSS",
       "sample_count": 10,
       "experiment_code": "E10",
-      "experiment_id": "E10-overhead-20261003-204814-d55cec02",
+      "experiment_id": "E10-overhead-20261022-203035-99fed25e",
       "source_artifact": "resource_overhead.csv",
-      "provenance": "Incremental resident memory incurred during active event processing."
+      "provenance": "Standalone collector process Resident Set Size (RSS) during active telemetry collection."
     },
     "maximum_tested_scale": {
-      "metric_name": "Maximum Experimentally Validated Scale",
+      "metric_name": "Multi-Tenant Key Partitioning Scale (Simulated)",
       "value": 100,
-      "unit": "systems",
+      "unit": "systems (simulated)",
       "sample_count": 46,
       "experiment_code": "E11",
-      "experiment_id": "E11-scale-20261003-204823-29edf633",
+      "experiment_id": "E11-scale-20261022-203045-1c10bea4",
       "source_artifact": "scale_test.csv",
-      "provenance": "Highest system count experimentally tested meeting 0% loss and latency SLA."
+      "provenance": "Single-process multi-tenant key hashing simulation across 100 system IDs. Physical distributed fleet scale is unverified."
     }
   }
 }

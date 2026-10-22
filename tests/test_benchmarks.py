@@ -312,5 +312,69 @@ class TestSafetyDirectives(unittest.TestCase):
         self.assertTrue(id1.startswith("test-"))
 
 
+class TestMLEvaluationPipelineIntegrity(unittest.TestCase):
+    """Test decoupled ML pipeline, non-mutation during inference, and leakage prevention."""
+
+    def setUp(self):
+        from benchmarks.ml_evaluation import _generate_labelled_feature_dataset
+        from ml_engine import fit_sklearn_pipeline
+
+        self.dataset = _generate_labelled_feature_dataset(total_samples=100, seed=42)
+        self.train_data = self.dataset[:60]
+        self.test_data = self.dataset[60:]
+        self.pipeline = fit_sklearn_pipeline(self.train_data)
+
+    def test_inference_does_not_mutate_scaler_parameters(self):
+        import numpy as np
+        initial_mean = np.copy(self.pipeline.scaler.mean_)
+        initial_var = np.copy(self.pipeline.scaler.var_)
+
+        # Score test data
+        _ = self.pipeline.score_snapshots(self.test_data)
+
+        # Scaler parameters must remain bitwise identical
+        np.testing.assert_array_equal(self.pipeline.scaler.mean_, initial_mean)
+        np.testing.assert_array_equal(self.pipeline.scaler.var_, initial_var)
+
+    def test_extreme_outliers_do_not_contaminate_model_during_scoring(self):
+        import numpy as np
+        initial_mean = np.copy(self.pipeline.scaler.mean_)
+
+        extreme_outliers = [
+            {
+                "id": 9999,
+                "system_id": "outlier-node",
+                "snapshot_time": "2026-10-23T00:00:00Z",
+                "cpu_usage_percent": 99999.0,
+                "memory_usage_percent": 99999.0,
+                "disk_free_percent": -1000.0,
+                "error_count": 50000,
+                "critical_count": 25000,
+            }
+        ]
+
+        scores = self.pipeline.score_snapshots(extreme_outliers)
+        self.assertEqual(len(scores), 1)
+        self.assertTrue(scores[9999][1])  # Flagged as anomaly
+
+        # Verify scaler was not contaminated by the extreme outlier
+        np.testing.assert_array_equal(self.pipeline.scaler.mean_, initial_mean)
+
+    def test_inference_is_strictly_deterministic(self):
+        scores1 = self.pipeline.score_snapshots(self.test_data)
+        scores2 = self.pipeline.score_snapshots(self.test_data)
+        self.assertEqual(scores1, scores2)
+
+    def test_ml_benchmark_reports_disclosed_splits_and_baselines(self):
+        from benchmarks.ml_evaluation import run_ml_evaluation_benchmark
+        with tempfile.TemporaryDirectory() as tmpdir:
+            res = run_ml_evaluation_benchmark(total_samples=100, output_dir=Path(tmpdir))
+            self.assertIn("validation_tuned_evaluation", res)
+            self.assertIn("baseline_comparison", res)
+            self.assertIn("confusion_matrix", res)
+            self.assertIsNotNone(res["roc_auc"])
+            self.assertIsNotNone(res["f1_score"])
+
+
 if __name__ == "__main__":
     unittest.main()

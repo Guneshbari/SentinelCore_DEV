@@ -180,14 +180,21 @@ def run_detection_latency_benchmark(
     output_dir: Optional[Path] = None,
 ) -> Dict[str, Any]:
     """
-    E01: Measure how quickly SentinelCore turns an event into a detected and alerted event.
+    E01: In-Memory Telemetry Classification & Error Detection Latency.
 
-    Generates controlled test events, records timestamps at generation,
-    classification/ingestion, and alert generation.
+    Measures in-process execution latency of classify_event() and analyzer.detect_errors().
+    Does not measure network transit, Kafka buffering, consumer polling, or database writes.
+    Includes a 5-request warmup to stabilize interpreter and import caches.
     """
     exp_id = experiment_id or generate_experiment_id("E01-latency")
     artifacts_dir = output_dir or get_experiment_artifacts_dir(exp_id)
     system_id = f"{BENCHMARK_SYSTEM_ID_PREFIX}e01"
+
+    # Warmup phase (5 requests, not measured)
+    for w_i in range(5):
+        w_event = generate_controlled_event(FAULT_SCENARIOS[w_i % len(FAULT_SCENARIOS)], w_i, system_id)
+        _ = classify_event(w_event["provider_name"], w_event["event_id"], w_event["level"])
+        _ = AZ.detect_errors([w_event])
 
     observations: List[Dict[str, Any]] = []
     latencies_ms: List[float] = []
@@ -204,7 +211,7 @@ def run_detection_latency_benchmark(
 
         event = generate_controlled_event(scenario, i, system_id, t_gen_iso)
 
-        # 1. Telemetry classification & ingestion phase
+        # 1. In-memory classification & error detection
         t_ingest_start = time.perf_counter()
         classified = classify_event(event["provider_name"], event["event_id"], event["level"])
         detected_errors = AZ.detect_errors([event])
@@ -213,7 +220,7 @@ def run_detection_latency_benchmark(
 
         detection_latency_ms = (t_det_mono - t_gen_mono) * 1000.0
 
-        # 2. Alert evaluation phase
+        # 2. Alert evaluation phase (in-memory candidate rules)
         t_alert_iso: Optional[str] = None
         alert_latency_ms: Optional[float] = None
         e2e_latency_ms: Optional[float] = None
@@ -248,7 +255,7 @@ def run_detection_latency_benchmark(
             detection_latency_ms=round(detection_latency_ms, 3),
             end_to_end_latency_ms=round(e2e_latency_ms, 3) if e2e_latency_ms else None,
             success=True,
-            notes=f"Scenario {scenario} processed via pipeline",
+            notes=f"Scenario {scenario} processed in-memory",
         )
         observations.append(obs)
 
@@ -262,7 +269,7 @@ def run_detection_latency_benchmark(
 
     metadata = get_run_metadata(
         experiment_id=exp_id,
-        configuration={"sample_size": sample_size, "scenarios": FAULT_SCENARIOS},
+        configuration={"sample_size": sample_size, "scenarios": FAULT_SCENARIOS, "warmup_requests": 5},
         system_count=1,
         workload_size=sample_size,
         duration_seconds=duration,
@@ -270,12 +277,18 @@ def run_detection_latency_benchmark(
 
     summary = {
         "experiment_id": exp_id,
-        "experiment_name": "End-to-End Detection Latency",
+        "experiment_name": "In-Memory Telemetry Classification Latency",
         "experiment_code": "E01",
         "metadata": metadata,
+        "measurement_boundary": (
+            "in_memory_only (times in-process classify_event and analyzer.detect_errors; "
+            "excludes wire transport, Kafka queueing, consumer polling, and PostgreSQL persistence)"
+        ),
         "sample_count": sample_size,
+        "warmup_requests": 5,
         "successful_observations": len(observations),
         "failed_observations": 0,
+        "in_memory_classification_latency_ms": det_stats,
         "detection_latency_ms": det_stats,
         "end_to_end_latency_ms": e2e_stats,
         "event_to_alert_latency_ms": alert_stats,

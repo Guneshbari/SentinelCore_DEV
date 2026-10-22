@@ -83,13 +83,13 @@ def run_all_benchmarks(
 
     t_suite_start = time.perf_counter()
 
-    # E01: End-to-End Detection Latency
+    # E01: In-Memory Telemetry Classification Latency
     try:
         print("\n[1/8] Running Detection Benchmarks (E01, E02, E03)...")
         e01 = run_detection_latency_benchmark(sample_size=samples, output_dir=suite_dir)
         experiments["E01"] = e01
         p95 = e01["detection_latency_ms"]["p95"]
-        print(f"  ✓ E01 Complete: P95 Detection Latency = {p95} ms")
+        print(f"  ✓ E01 Complete: P95 In-Memory Classification Latency = {p95} ms")
     except Exception as exc:
         print(f"  ✗ E01 Failed: {exc}", file=sys.stderr)
         failed_experiments.append("E01")

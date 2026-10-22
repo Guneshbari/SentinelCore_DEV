@@ -5,7 +5,7 @@ from utils.db import make_db_connection
 from utils.logging import structured_log
 from utils.retry import retry_with_backoff
 from utils.text import clean_message
-from utils.timeout import timeout_wrapper
+from utils.timeout import get_timeout_pool, shutdown_timeout_pool, timeout_wrapper
 
 __all__ = [
     "CircuitBreaker",
@@ -13,5 +13,7 @@ __all__ = [
     "make_db_connection",
     "retry_with_backoff",
     "structured_log",
+    "get_timeout_pool",
+    "shutdown_timeout_pool",
     "timeout_wrapper",
 ]

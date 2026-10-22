@@ -115,10 +115,12 @@ export default function Topbar() {
 
   useEffect(() => {
     // Initial fetch
-    fetchHealth();
-    fetchAlerts();
-    fetchLive();
-    syncWsStatus();
+    void (async () => {
+      await fetchHealth();
+      await fetchAlerts();
+      await fetchLive();
+      syncWsStatus();
+    })();
 
     // Polling: pipeline at 10s, live-status at 15s, WS sync at 5s
     const pipelineInterval  = setInterval(fetchHealth,    10_000);

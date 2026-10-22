@@ -41,7 +41,7 @@ from benchmarks.config import (
 )
 
 try:
-    from sklearn.metrics import roc_auc_score
+    from sklearn.metrics import roc_auc_score, average_precision_score
     _SKLEARN_METRICS_AVAILABLE = True
 except ImportError:
     _SKLEARN_METRICS_AVAILABLE = False
@@ -104,42 +104,80 @@ def _generate_labelled_feature_dataset(
 
 def run_ml_evaluation_benchmark(
     total_samples: int = 500,
-    train_ratio: float = 0.8,
+    train_ratio: float = 0.6,
+    val_ratio: float = 0.2,
+    seed: int = 42,
     experiment_id: Optional[str] = None,
     output_dir: Optional[Path] = None,
 ) -> Dict[str, Any]:
     """
     E08: Quantitatively evaluate SentinelCore anomaly detection.
 
-    Separates training and evaluation data (never evaluates on train set),
-    runs the actual Isolation Forest model from ml_engine, and reports
-    precision, recall, F1, FPR, and ROC-AUC.
+    Decouples training, validation, and evaluation:
+    - Fits StandardScaler and IsolationForest solely on training data.
+    - Evaluates and calibrates decision thresholds on held-out validation data.
+    - Evaluates final generalization performance on an untouched test set.
+    - Reports complete confusion matrix, precision, recall, F1, FPR, ROC-AUC, PR-AUC,
+      and compares against the heuristic rule baseline.
     """
+    import numpy as np
+
     exp_id = experiment_id or generate_experiment_id("E08-ml-evaluation")
     artifacts_dir = output_dir or get_experiment_artifacts_dir(exp_id)
     system_id = f"{BENCHMARK_SYSTEM_ID_PREFIX}e08"
 
     t_start = time.perf_counter()
 
-    # 1. Generate labelled dataset
-    full_dataset = _generate_labelled_feature_dataset(total_samples=total_samples)
+    # 1. Generate labelled dataset with fixed seed
+    full_dataset = _generate_labelled_feature_dataset(
+        total_samples=total_samples,
+        anomaly_ratio=0.15,
+        seed=seed,
+    )
 
-    # 2. Strict Train / Test Split
-    split_idx = int(len(full_dataset) * train_ratio)
-    train_data = full_dataset[:split_idx]
-    test_data = full_dataset[split_idx:]
+    # 2. Strict Deterministic 3-Way Split (Train / Val / Test)
+    n_train = int(len(full_dataset) * train_ratio)
+    n_val = int(len(full_dataset) * val_ratio)
+    train_data = full_dataset[:n_train]
+    val_data = full_dataset[n_train : n_train + n_val]
+    test_data = full_dataset[n_train + n_val :]
 
-    print(f"  → ML Dataset: {len(full_dataset)} total rows (Train: {len(train_data)}, Test: {len(test_data)})")
+    print(
+        f"  → ML Dataset: {len(full_dataset)} rows "
+        f"(Train: {len(train_data)}, Val: {len(val_data)}, Test: {len(test_data)})"
+    )
 
-    # 3. Train Isolation Forest using SentinelCore pipeline
-    train_scores = MLE._run_sklearn_pipeline(train_data)
+    # 3. Train Isolation Forest solely on train_data (never fit on val or test!)
+    pipeline = MLE.fit_sklearn_pipeline(train_data)
 
-    # 4. Predict on held-out test data
-    # In IsolationForest, we score test observations
-    test_scores = MLE._run_sklearn_pipeline(test_data)
+    # 4. Tune decision threshold on validation set only
+    val_scores = pipeline.score_snapshots(val_data)
+    val_y_true = [item["ground_truth_label"] for item in val_data]
+    val_y_scores = [val_scores[item["id"]][0] for item in val_data]
+
+    best_val_thresh = 0.5
+    best_val_f1 = -1.0
+    for cand_th in [round(float(x), 3) for x in np.linspace(0.1, 0.9, 81)]:
+        cand_preds = [1 if s >= cand_th else 0 for s in val_y_scores]
+        val_m = calculate_classification_metrics(
+            tp=sum(1 for a, p in zip(val_y_true, cand_preds) if a == 1 and p == 1),
+            fp=sum(1 for a, p in zip(val_y_true, cand_preds) if a == 0 and p == 1),
+            tn=sum(1 for a, p in zip(val_y_true, cand_preds) if a == 0 and p == 0),
+            fn=sum(1 for a, p in zip(val_y_true, cand_preds) if a == 1 and p == 0),
+        )
+        if val_m["f1"] is not None and val_m["f1"] > best_val_f1:
+            best_val_f1 = val_m["f1"]
+            best_val_thresh = cand_th
+
+    # 5. Evaluate inference on held-out test data
+    test_scores = pipeline.score_snapshots(test_data)
+    test_scores_val_tuned = pipeline.score_snapshots(test_data, threshold=best_val_thresh)
 
     observations: List[Dict[str, Any]] = []
     tp = fp = tn = fn = 0
+    tp_tuned = fp_tuned = tn_tuned = fn_tuned = 0
+    tp_base = fp_base = tn_base = fn_base = 0
+
     y_true: List[int] = []
     y_scores: List[float] = []
 
@@ -148,11 +186,11 @@ def run_ml_evaluation_benchmark(
         actual = item["ground_truth_label"]
         y_true.append(actual)
 
+        # Default IsolationForest prediction
         pred_tuple = test_scores.get(row_id)
         if pred_tuple:
             anomaly_score, is_anomaly_pred, cluster_id = pred_tuple
         else:
-            # Fallback heuristic
             score, is_anomaly_pred, _ = MLE._heuristic_score(item)
             anomaly_score = score
             cluster_id = None
@@ -173,6 +211,29 @@ def run_ml_evaluation_benchmark(
         elif actual == 1 and predicted_binary == 0:
             fn += 1
             sample_fn = 1
+
+        # Validation-tuned prediction
+        pred_tuned = test_scores_val_tuned.get(row_id)
+        is_anom_tuned = bool(pred_tuned[1]) if pred_tuned else False
+        if actual == 1 and is_anom_tuned:
+            tp_tuned += 1
+        elif actual == 0 and is_anom_tuned:
+            fp_tuned += 1
+        elif actual == 0 and not is_anom_tuned:
+            tn_tuned += 1
+        elif actual == 1 and not is_anom_tuned:
+            fn_tuned += 1
+
+        # Baseline heuristic prediction
+        _, base_anom, _ = MLE._heuristic_score(item)
+        if actual == 1 and base_anom:
+            tp_base += 1
+        elif actual == 0 and base_anom:
+            fp_base += 1
+        elif actual == 0 and not base_anom:
+            tn_base += 1
+        elif actual == 1 and not base_anom:
+            fn_base += 1
 
         obs = create_observation(
             experiment_id=exp_id,
@@ -195,13 +256,17 @@ def run_ml_evaluation_benchmark(
 
     # Metrics computation
     metrics = calculate_classification_metrics(tp, fp, tn, fn)
+    metrics_tuned = calculate_classification_metrics(tp_tuned, fp_tuned, tn_tuned, fn_tuned)
+    metrics_baseline = calculate_classification_metrics(tp_base, fp_base, tn_base, fn_base)
 
     roc_auc = None
+    pr_auc = None
     if _SKLEARN_METRICS_AVAILABLE and len(set(y_true)) > 1:
         try:
             roc_auc = round(float(roc_auc_score(y_true, y_scores)), 4)
+            pr_auc = round(float(average_precision_score(y_true, y_scores)), 4)
         except Exception:
-            roc_auc = None
+            pass
 
     anomaly_count = sum(y_true)
     normal_count = len(y_true) - anomaly_count
@@ -213,7 +278,9 @@ def run_ml_evaluation_benchmark(
             "isolation_forest_config": MLE.ISOLATION_FOREST_CONFIG,
             "total_dataset_size": len(full_dataset),
             "train_set_size": len(train_data),
+            "val_set_size": len(val_data),
             "test_set_size": len(test_data),
+            "seed": seed,
             "test_class_distribution": {"anomaly": anomaly_count, "normal": normal_count},
             "data_source": "Controlled synthetic feature snapshot benchmark generator",
         },
@@ -237,12 +304,44 @@ def run_ml_evaluation_benchmark(
         "false_negative_rate": metrics["false_negative_rate"],
         "accuracy": metrics["accuracy"],
         "roc_auc": roc_auc,
+        "pr_auc": pr_auc,
         "confusion_matrix": {
             "true_positives": tp,
             "false_positives": fp,
             "true_negatives": tn,
             "false_negatives": fn,
         },
+        "validation_tuned_evaluation": {
+            "tuned_threshold": best_val_thresh,
+            "val_f1": best_val_f1,
+            "test_precision": metrics_tuned["precision"],
+            "test_recall": metrics_tuned["recall"],
+            "test_f1": metrics_tuned["f1"],
+            "test_confusion_matrix": {
+                "true_positives": tp_tuned,
+                "false_positives": fp_tuned,
+                "true_negatives": tn_tuned,
+                "false_negatives": fn_tuned,
+            },
+        },
+        "baseline_comparison": {
+            "baseline_type": "heuristic_threshold_rule",
+            "test_precision": metrics_baseline["precision"],
+            "test_recall": metrics_baseline["recall"],
+            "test_f1": metrics_baseline["f1"],
+            "test_confusion_matrix": {
+                "true_positives": tp_base,
+                "false_positives": fp_base,
+                "true_negatives": tn_base,
+                "false_negatives": fn_base,
+            },
+        },
+        "evaluation_notes": (
+            "Model fitted exclusively on train_data. Decision threshold selected "
+            "on val_data only. Default IsolationForest predict() uses contamination=0.05, "
+            "which bounds default recall on a 15% anomaly workload to ~33-50%. "
+            "Calibrating threshold on validation data achieves improved recall without test leakage."
+        ),
         "artifacts": {
             "raw_csv": "ml_evaluation.csv",
             "summary_json": "ml_evaluation_summary.json",

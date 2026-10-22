@@ -46,9 +46,10 @@ Fetches a list of total online/offline endpoint signatures.
 - **Response:** JSON Array identifying the tracked WMI nodes with latest heartbeat variables.
 
 ### 4. `POST /systems/command`
-Simulates a Remote Procedure Execution (RCE) natively pushed down toward an administrative terminal modal on the frontend UI.
+> [!WARNING]
+> **MOCKED / NON-EXECUTING (Simulation Only)**: Writes an audit log record to PostgreSQL and returns a mock queue/dispatch response. Does NOT execute real shell commands or scripts on remote managed nodes. A separately reviewed, cryptographically secure execution agent is required before real remote command execution can be supported.
 - **Payload:** `{system_id: str, command: str}`
-- **Response:** JSON Array returning standardized mock responses for system restarts.
+- **Response:** JSON object `{success: bool, output: str}` returning mock dispatch confirmation.
 
 ### 5. `/alerts` Base
 Configures the rules engine governing automated anomaly detection alerts.
