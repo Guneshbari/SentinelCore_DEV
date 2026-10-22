@@ -316,7 +316,6 @@ class TestMLEvaluationPipelineIntegrity(unittest.TestCase):
     """Test decoupled ML pipeline, non-mutation during inference, and leakage prevention."""
 
     def setUp(self):
-        import numpy as np
         from benchmarks.ml_evaluation import _generate_labelled_feature_dataset
         from ml_engine import fit_sklearn_pipeline
 

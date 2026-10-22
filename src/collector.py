@@ -421,7 +421,7 @@ _CLASSIFICATION_RULES = [
     ('WindowsUpdateClient', None,          'UPDATE_ERROR'),
     ('Volsnap', None,                      'STORAGE_ERROR'),
     ('Ntfs', None,                         'STORAGE_ERROR'),
-     ('DistributedCOM',         None,       'SECURITY_EVENT'),
+    ('DistributedCOM', None, 'SECURITY_EVENT'),
     ('Netwtw14',               None,       'DRIVER_ISSUE'),
     ('TPM-WMI',                None,       'SECURITY_EVENT'),
     ('Hyper-V',                None,       'DRIVER_ISSUE'),

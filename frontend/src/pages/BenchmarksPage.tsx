@@ -5,7 +5,7 @@
  * Distinct from live operational KPIs and heartbeats.
  */
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   Activity,
   AlertCircle,
@@ -32,7 +32,7 @@ export default function BenchmarksPage() {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
-  const loadBenchmarkData = async () => {
+  const loadBenchmarkData = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -48,11 +48,13 @@ export default function BenchmarksPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    loadBenchmarkData();
-  }, []);
+    void (async () => {
+      await loadBenchmarkData();
+    })();
+  }, [loadBenchmarkData]);
 
   const evidence = data?.resume_evidence || {};
   const experiments = data?.experiments || {};

@@ -310,6 +310,7 @@ class TestTimeoutWrapper(unittest.TestCase):
     def test_repeated_timeouts_do_not_leak_unbounded_threads(self):
         """Repeated timeouts should return immediately and not spawn unbounded threads."""
         block = threading.Event()
+
         def _blocking():
             block.wait(timeout=5)
             return "done"
