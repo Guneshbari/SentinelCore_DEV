@@ -189,9 +189,11 @@ def run_horizontal_scale_benchmark(
 
     summary = {
         "experiment_id": exp_id,
-        "experiment_name": "Horizontal Scale Test",
+        "experiment_name": "Multi-Tenant Key Partitioning Simulation",
         "experiment_code": "E11",
         "metadata": metadata,
+        "validation_scope": "in_process_multi_tenant_simulation",
+        "distributed_fleet_scale_status": "UNVERIFIED (Single-process data-structure simulation; real distributed fleet scale not tested)",
         "sample_count": len(observations),
         "maximum_tested_scale": max_validated_scale,
         "scale_tier_results": scale_level_results,
@@ -206,11 +208,16 @@ def run_horizontal_scale_benchmark(
 
     # Markdown Report
     md_lines = [
-        f"# Benchmark Report: E11 Horizontal Scale Test",
+        f"# Benchmark Report: E11 Multi-Tenant Key Partitioning Simulation",
         f"",
         f"**Experiment ID:** `{exp_id}`  ",
-        f"**Maximum Experimentally Validated Scale:** `{max_validated_scale} systems`  ",
+        f"**Maximum Partitioned System Keys:** `{max_validated_scale} system IDs`  ",
+        f"**Scope:** Single-process multi-tenant data structure simulation (Distributed cluster scale: UNVERIFIED)  ",
         f"**Timestamp:** {metadata['timestamp']}  ",
+        f"",
+        f"> [!NOTE]",
+        f"> This benchmark validates in-memory multi-tenant event hashing and hash collision avoidance across 100 system identifiers in a single thread.",
+        f"> It does not validate distributed clustering, multi-process workers, or physical node deployment.",
         f"",
         f"## Scale Tiers Performance Breakdown",
         f"",

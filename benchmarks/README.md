@@ -190,18 +190,18 @@ Latency measurements are sorted in ascending order and calculated using linear i
 
 SentinelCore includes an automated provenance pipeline in [`report_generator.py`](file:///home/gnx/Projects/SentinelCore_DEV/benchmarks/report_generator.py) that maps technical resume claims directly to raw measurement files:
 
-| Claim Category | Concrete Technical Claim Metric | Raw Observation Source File |
-|:---|:---|:---|
-| **Detection Speed** | Sub-millisecond P50 detection latency under load | `results/run_*/detection_latency.csv` |
-| **Fault Coverage** | 100% detection coverage across 8 Windows fault types | `results/run_*/fault_coverage.csv` |
-| **Signal Quality** | Alert Precision > 95% and F1 > 0.90 | `results/run_*/alert_quality.csv` |
-| **Pipeline Scale** | 1,000+ sustained Events/Sec with sub-5ms DB write latency | `results/run_*/throughput_benchmark.csv` |
-| **Zero Data Loss** | 100% delivery success rate during Kafka broker outages | `results/run_*/kafka_resilience.csv` |
-| **Database Resilience**| 100% delivery success rate during PostgreSQL outages | `results/run_*/postgres_resilience.csv` |
-| **API Performance** | P95 API response latency < 15ms across 10 endpoints | `results/run_*/api_benchmark.csv` |
-| **Proactive ML** | Isolation Forest ROC-AUC > 0.95 with early failure warning | `results/run_*/ml_evaluation.csv` |
-| **Agent Footprint** | Under 1% CPU and < 25MB RAM agent overhead | `results/run_*/resource_overhead.csv` |
-| **Fleet Scale** | Linear scaling across 100 simulated nodes with 0% loss | `results/run_*/scale_test.csv` |
+| Claim Category | Concrete Technical Claim Metric | Scope & Measurement Boundary | Raw Observation Source File |
+|:---|:---|:---|:---|
+| **Detection Speed** | Sub-millisecond P50 in-process classification latency (~0.02ms) | In-Memory Microbenchmark (excludes wire/queue) | `results/run_*/detection_latency.csv` |
+| **Fault Coverage** | 100% detection coverage across 8 Windows fault types | Controlled Scenario Verification | `results/run_*/fault_detection_coverage.csv` |
+| **Signal Quality** | Alert Precision 100.0% and F1 > 0.90 on controlled workload | Controlled Scenario Verification | `results/run_*/alert_quality.csv` |
+| **Pipeline Scale** | 250–1,000 EPS sustained with batched writes to PostgreSQL (~3–12ms per batch) | Measured on Live PostgreSQL Stack | `results/run_*/throughput_benchmark.csv` |
+| **Zero Data Loss** | 100% delivery success via local fallback buffer during simulated outage | In-Process Simulation | `results/run_*/kafka_recovery.csv` |
+| **Database Resilience**| 100% delivery success via consumer backlog queue during simulated outage | In-Process Simulation | `results/run_*/postgres_recovery.csv` |
+| **API Performance** | P95 API response latency < 15ms across 10 endpoints (DB I/O isolated) | In-Memory / ASGI Microbenchmark | `results/run_*/api_benchmark.csv` |
+| **Proactive ML** | Isolation Forest ROC-AUC 1.0, validation-calibrated F1 > 0.85 (default recall ~0.50) | Decoupled Train/Val/Test Evaluation | `results/run_*/ml_evaluation.csv` |
+| **Agent Footprint** | Standalone collector process RSS ~38 MB, CPU overhead < 1% under load | Standalone Subprocess Measurement | `results/run_*/resource_overhead.csv` |
+| **Fleet Scale** | Multi-tenant key hashing verified for 100 system IDs (Cluster scale: UNVERIFIED) | In-Process Data Structure Simulation | `results/run_*/scale_test.csv` |
 
 ### Accessing Benchmark Results in the UI and API
 

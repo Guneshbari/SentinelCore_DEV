@@ -46,19 +46,23 @@ def extract_resume_evidence(experiments: Dict[str, Any]) -> Dict[str, Any]:
     e01 = experiments.get("E01")
     if e01 and "detection_latency_ms" in e01:
         evidence["p95_detection_latency"] = {
-            "metric_name": "P95 End-to-End Detection Latency",
+            "metric_name": "In-Memory Classification Latency (P95) [formerly P95 End-to-End Detection Latency]",
             "value": e01["detection_latency_ms"]["p95"],
             "unit": "milliseconds",
             "sample_count": e01.get("sample_count", 0),
             "experiment_code": "E01",
             "experiment_id": e01.get("experiment_id", ""),
             "source_artifact": e01.get("artifacts", {}).get("raw_csv", "detection_latency.csv"),
-            "provenance": "Empirically measured ingestion-to-alert processing latency across controlled fault workloads.",
+            "provenance": (
+                "In-memory classification and detection latency across controlled fault workloads "
+                "(excludes network transit, Kafka buffering, consumer polling, and PostgreSQL persistence)."
+            ),
         }
 
     # E04: Maximum sustainable throughput
     e04 = experiments.get("E04")
     if e04 and "maximum_sustainable_events_per_sec" in e04:
+        p_backend = e04.get("persistence_backend", "live_postgresql or simulation")
         evidence["max_sustainable_throughput"] = {
             "metric_name": "Maximum Sustainable Pipeline Throughput",
             "value": e04["maximum_sustainable_events_per_sec"],
@@ -67,21 +71,21 @@ def extract_resume_evidence(experiments: Dict[str, Any]) -> Dict[str, Any]:
             "experiment_code": "E04",
             "experiment_id": e04.get("experiment_id", ""),
             "source_artifact": e04.get("artifacts", {}).get("raw_csv", "throughput_benchmark.csv"),
-            "provenance": "Highest EPS level sustained with 0% event loss and bounded latency.",
+            "provenance": f"Highest EPS level sustained with 0% event loss and bounded latency ({p_backend}).",
         }
 
     # E02: Detection coverage
     e02 = experiments.get("E02")
     if e02 and "overall_detection_coverage" in e02:
         evidence["detection_coverage"] = {
-            "metric_name": "Fault Detection Coverage",
+            "metric_name": "Fault Detection Coverage Across 8 Controlled Scenarios",
             "value": round(e02["overall_detection_coverage"] * 100.0, 2),
             "unit": "percent",
             "sample_count": e02.get("sample_count", 0),
             "experiment_code": "E02",
             "experiment_id": e02.get("experiment_id", ""),
             "source_artifact": e02.get("artifacts", {}).get("raw_csv", "fault_detection_coverage.csv"),
-            "provenance": "Fraction of known controlled fault scenarios accurately classified against ground truth.",
+            "provenance": "Fraction of known controlled fault scenarios accurately classified against ground truth across all 8 Windows fault types.",
         }
 
     # E03: Alert precision & FPR
@@ -114,7 +118,7 @@ def extract_resume_evidence(experiments: Dict[str, Any]) -> Dict[str, Any]:
     e05 = experiments.get("E05")
     if e05 and "delivery_success_rate" in e05:
         evidence["telemetry_delivery_success_rate"] = {
-            "metric_name": "Telemetry Delivery Success Rate During Outage",
+            "metric_name": "Telemetry Delivery Success Rate During Outage (In-Process Simulation)",
             "value": round(e05["delivery_success_rate"] * 100.0, 2),
             "unit": "percent",
             "sample_count": e05.get("sample_count", 0),
@@ -127,17 +131,27 @@ def extract_resume_evidence(experiments: Dict[str, Any]) -> Dict[str, Any]:
     # E05 & E06: Recovery times
     if e05 and "recovery_time_seconds" in e05:
         evidence["kafka_recovery_time"] = {
-            "metric_name": "Kafka Reconnection & Drain Time",
+            "metric_name": "Kafka Fallback Buffer Drain Time (In-Memory Simulation)",
             "value": e05["recovery_time_seconds"],
             "unit": "seconds",
             "sample_count": e05.get("sample_count", 0),
             "experiment_code": "E05",
             "experiment_id": e05.get("experiment_id", ""),
             "source_artifact": e05.get("artifacts", {}).get("raw_csv", "kafka_recovery.csv"),
-            "provenance": "Duration to restore connection and drain buffered telemetry into pipeline.",
+            "provenance": "Duration to drain local memory fallback queue into pipeline (in-process simulation).",
         }
     e06 = experiments.get("E06")
     if e06 and "db_recovery_time_seconds" in e06:
+        evidence["postgres_recovery_time"] = {
+            "metric_name": "PostgreSQL Consumer Queue Recovery Time (In-Process Simulation)",
+            "value": e06["db_recovery_time_seconds"],
+            "unit": "seconds",
+            "sample_count": e06.get("sample_count", 0),
+            "experiment_code": "E06",
+            "experiment_id": e06.get("experiment_id", ""),
+            "source_artifact": e06.get("artifacts", {}).get("raw_csv", "postgres_recovery.csv"),
+            "provenance": "Duration to drain in-memory consumer queue following database circuit-breaker reset.",
+        }
         evidence["postgres_recovery_time"] = {
             "metric_name": "PostgreSQL Recovery & Backlog Drain Time",
             "value": e06["db_recovery_time_seconds"],
@@ -204,28 +218,28 @@ def extract_resume_evidence(experiments: Dict[str, Any]) -> Dict[str, Any]:
             }
         if "collector_memory_overhead_mb" in e10:
             evidence["collector_memory_overhead"] = {
-                "metric_name": "Collector Memory Overhead (RSS)",
-                "value": e10["collector_memory_overhead_mb"],
-                "unit": "megabytes (MB)",
+                "metric_name": "Collector Process Memory (RSS)",
+                "value": e10.get("standalone_agent_rss_mb", e10["collector_memory_overhead_mb"]),
+                "unit": "megabytes (MB) RSS",
                 "sample_count": e10.get("sample_count", 0),
                 "experiment_code": "E10",
                 "experiment_id": e10.get("experiment_id", ""),
                 "source_artifact": e10.get("artifacts", {}).get("raw_csv", "resource_overhead.csv"),
-                "provenance": "Incremental resident memory incurred during active event processing.",
+                "provenance": "Standalone collector process Resident Set Size (RSS) during active telemetry collection.",
             }
 
     # E11: Maximum tested scale
     e11 = experiments.get("E11")
     if e11 and "maximum_tested_scale" in e11:
         evidence["maximum_tested_scale"] = {
-            "metric_name": "Maximum Experimentally Validated Scale",
+            "metric_name": "Multi-Tenant Key Partitioning Scale (Simulated)",
             "value": e11["maximum_tested_scale"],
-            "unit": "systems",
+            "unit": "systems (simulated)",
             "sample_count": e11.get("sample_count", 0),
             "experiment_code": "E11",
             "experiment_id": e11.get("experiment_id", ""),
             "source_artifact": e11.get("artifacts", {}).get("raw_csv", "scale_test.csv"),
-            "provenance": "Highest system count experimentally tested meeting 0% loss and latency SLA.",
+            "provenance": "Single-process multi-tenant key hashing simulation across 100 system IDs. Physical distributed fleet scale is unverified.",
         }
 
     return evidence

@@ -205,9 +205,11 @@ def run_kafka_recovery_benchmark(
 
     summary = {
         "experiment_id": exp_id,
-        "experiment_name": "Kafka Failure Recovery",
+        "experiment_name": "Kafka Fallback Buffer Simulation (In-Process)",
         "experiment_code": "E05",
         "metadata": metadata,
+        "simulation_mode": True,
+        "measurement_scope": "in_memory_queue_buffering_and_circuit_breaker_simulation",
         "sample_count": total_generated,
         "events_generated_during_outage": events_during_outage,
         "events_buffered_locally": outage_buffered_count,
@@ -388,9 +390,11 @@ def run_postgres_recovery_benchmark(
 
     summary = {
         "experiment_id": exp_id,
-        "experiment_name": "PostgreSQL Failure Recovery",
+        "experiment_name": "PostgreSQL Backlog Queue Simulation (In-Process)",
         "experiment_code": "E06",
         "metadata": metadata,
+        "simulation_mode": True,
+        "measurement_scope": "in_memory_consumer_queue_buffering_and_circuit_breaker_simulation",
         "sample_count": total_generated,
         "events_generated": total_generated,
         "events_persisted": total_persisted,

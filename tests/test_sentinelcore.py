@@ -307,6 +307,33 @@ class TestTimeoutWrapper(unittest.TestCase):
         SU.timeout_wrapper(_fn, timeout_secs=2.0, label="t")
         self.assertTrue(executed.is_set())
 
+    def test_repeated_timeouts_do_not_leak_unbounded_threads(self):
+        """Repeated timeouts should return immediately and not spawn unbounded threads."""
+        block = threading.Event()
+        def _blocking():
+            block.wait(timeout=5)
+            return "done"
+
+        t0 = time.perf_counter()
+        for i in range(10):
+            res, ok = SU.timeout_wrapper(_blocking, timeout_secs=0.02, label=f"leak_test_{i}")
+            self.assertFalse(ok)
+            self.assertIsNone(res)
+        elapsed = time.perf_counter() - t0
+        block.set()
+        # 10 calls with 20ms timeout should complete in well under 1 second
+        self.assertLess(elapsed, 1.0)
+
+    def test_pool_lifecycle_and_clean_shutdown(self):
+        pool = SU.get_timeout_pool()
+        self.assertIsNotNone(pool)
+        self.assertFalse(pool._shutdown)
+        SU.shutdown_timeout_pool(wait=False, cancel_futures=True)
+        # Next call to get_timeout_pool recreates a fresh pool
+        fresh_pool = SU.get_timeout_pool()
+        self.assertIsNotNone(fresh_pool)
+        self.assertFalse(fresh_pool._shutdown)
+
 
 # =============================================================================
 # 4. sentinel_utils — CircuitBreaker
@@ -1140,6 +1167,36 @@ class TestClassifyEvent(unittest.TestCase):
         r = _col.classify_event("Service Control Manager", 7031, 2)
         self.assertIsInstance(r["fault_description"], str)
         self.assertGreater(len(r["fault_description"]), 0)
+
+    def test_disk_153_is_storage_error(self):
+        r = _col.classify_event("disk", 153, 2)
+        self.assertEqual(r["fault_type"], "STORAGE_ERROR")
+
+    def test_security_auditing_4625_is_security_event(self):
+        r = _col.classify_event("Microsoft-Windows-Security-Auditing", 4625, 3)
+        self.assertEqual(r["fault_type"], "SECURITY_EVENT")
+
+    def test_resource_monitor_9001_is_resource_warning(self):
+        r = _col.classify_event("SentinelCore-ResourceMonitor", 9001, 3)
+        self.assertEqual(r["fault_type"], "RESOURCE_WARNING")
+
+    def test_unrelated_provider_with_known_event_id_falls_back(self):
+        r = _col.classify_event("UnrelatedCustomApp", 4625, 4)
+        self.assertEqual(r["fault_type"], "UNKNOWN")
+        r2 = _col.classify_event("UnrelatedCustomApp", 153, 4)
+        self.assertEqual(r2["fault_type"], "UNKNOWN")
+
+    def test_known_provider_with_unknown_event_id(self):
+        r = _col.classify_event("Microsoft-Windows-Security-Auditing", 4624, 4)
+        self.assertEqual(r["fault_type"], "UNKNOWN")
+        r2 = _col.classify_event("SentinelCore-ResourceMonitor", 9999, 4)
+        self.assertEqual(r2["fault_type"], "UNKNOWN")
+
+    def test_empty_or_none_provider_handled_gracefully(self):
+        r = _col.classify_event("", 0, 4)
+        self.assertEqual(r["fault_type"], "UNKNOWN")
+        r2 = _col.classify_event(None, 0, 4)
+        self.assertEqual(r2["fault_type"], "UNKNOWN")
 
 
 # =============================================================================

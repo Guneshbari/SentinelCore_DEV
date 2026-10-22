@@ -15,6 +15,7 @@ For an exhaustive breakdown of SentinelCore's architecture and capabilities, exp
 2. [Backend Services Overview](docs/backend_services.md) - Detailed behavior of Python microservices.
 3. [Frontend Dashboard](docs/frontend_dashboard.md) - React UI configurations and context state mapping.
 4. [API Reference](docs/api_reference.md) - Payload strictures for the FastAPI endpoints.
+5. [Benchmarking & Empirical Validation](benchmarks/README.md) - Reproducible performance benchmarks, measurement boundaries, and verified claims.
 
 ### Infrastructure & Deployment Guides
 - [WSL / Local Deployment](docs/WSL_KAFKA_POSTGRES_SETUP.md)

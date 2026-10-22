@@ -183,8 +183,124 @@ def _failure_probability(snap: Dict[str, Any]) -> float:
 
 
 # ---------------------------------------------------------------------------
-# sklearn pipeline
+# sklearn pipeline: Decoupled Training and Inference
 # ---------------------------------------------------------------------------
+
+class MLPipelineModel:
+    """
+    Trained container for ML preprocessing and anomaly detection models.
+
+    Decouples training (fit) from scoring (predict/transform), preventing
+    data leakage and ensuring inference does not mutate or refit model state.
+    """
+
+    def __init__(
+        self,
+        scaler: Any,
+        iso: Any,
+        km: Optional[Any] = None,
+        min_score: float = -0.5,
+        max_score: float = 0.5,
+        decision_threshold: Optional[float] = None,
+    ):
+        self.scaler = scaler
+        self.iso = iso
+        self.km = km
+        self.min_score = min_score
+        self.max_score = max_score
+        self.decision_threshold = decision_threshold
+
+    def score_snapshots(
+        self,
+        snapshots: List[Dict[str, Any]],
+        threshold: Optional[float] = None,
+    ) -> Dict[int, Tuple[float, bool, Optional[int]]]:
+        """
+        Run inference on snapshots using pre-fitted scaler and models.
+
+        Uses scaler.transform and iso.decision_function/predict. Never calls
+        fit or mutates model parameters during evaluation.
+        """
+        if not snapshots:
+            return {}
+
+        import numpy as np
+
+        X = np.array(
+            [[float(s.get(col) or 0) for col in FEATURE_COLUMNS] for s in snapshots],
+            dtype=float,
+        )
+
+        X_scaled = self.scaler.transform(X)
+
+        raw_scores = self.iso.decision_function(X_scaled)
+        labels = self.iso.predict(X_scaled)
+
+        score_range = self.max_score - self.min_score if self.max_score != self.min_score else 1.0
+        anomaly_scores = np.clip(1.0 - (raw_scores - self.min_score) / score_range, 0.0, 1.0)
+
+        eff_threshold = threshold if threshold is not None else self.decision_threshold
+
+        cluster_ids: Optional[List[int]] = None
+        if self.km is not None:
+            cluster_ids = self.km.predict(X_scaled).tolist()
+
+        results: Dict[int, Tuple[float, bool, Optional[int]]] = {}
+        for i, snap in enumerate(snapshots):
+            row_id = snap.get("id", i)
+            a_score = float(anomaly_scores[i])
+            if eff_threshold is not None:
+                is_anom = bool(a_score >= eff_threshold)
+            else:
+                is_anom = bool(labels[i] == -1)
+            c_id = cluster_ids[i] if cluster_ids is not None else None
+            results[row_id] = (a_score, is_anom, c_id)
+
+        return results
+
+
+def fit_sklearn_pipeline(
+    snapshots: List[Dict[str, Any]],
+    config: Optional[Dict[str, Any]] = None,
+) -> MLPipelineModel:
+    """
+    Fit StandardScaler, IsolationForest, and optional KMeans on training snapshots.
+
+    Returns an MLPipelineModel ready for inference.
+    """
+    if not _SKLEARN_AVAILABLE:
+        raise RuntimeError("scikit-learn is not available in the environment")
+
+    import numpy as np
+
+    X = np.array(
+        [[float(s.get(col) or 0) for col in FEATURE_COLUMNS] for s in snapshots],
+        dtype=float,
+    )
+
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
+
+    if_config = config or ISOLATION_FOREST_CONFIG
+    iso = IsolationForest(**if_config)
+    iso.fit(X_scaled)
+
+    raw_scores = iso.decision_function(X_scaled)
+    min_s, max_s = float(raw_scores.min()), float(raw_scores.max())
+
+    km: Optional[Any] = None
+    if KMEANS_ENABLED and len(snapshots) >= 2:
+        n_clusters = min(KMEANS_CONFIG["n_clusters"], len(snapshots))
+        if n_clusters >= 2:
+            km = KMeans(
+                n_clusters=n_clusters,
+                n_init=KMEANS_CONFIG["n_init"],
+                random_state=KMEANS_CONFIG["random_state"],
+            )
+            km.fit(X_scaled)
+
+    return MLPipelineModel(scaler=scaler, iso=iso, km=km, min_score=min_s, max_score=max_s)
+
 
 def _run_sklearn_pipeline(
     snapshots: List[Dict[str, Any]],
@@ -195,50 +311,9 @@ def _run_sklearn_pipeline(
     Returns a dict keyed by snapshot row `id`:
         {row_id: (anomaly_score, is_anomaly, cluster_id_or_None)}
     """
-    import numpy as np  # guaranteed to be present when sklearn is
+    pipeline = fit_sklearn_pipeline(snapshots)
+    return pipeline.score_snapshots(snapshots)
 
-    # Build feature matrix — fill missing values with 0 for robustness
-    X = np.array(
-        [[float(s.get(col) or 0) for col in FEATURE_COLUMNS] for s in snapshots],
-        dtype=float,
-    )
-
-    scaler = StandardScaler()
-    X_scaled = scaler.fit_transform(X)
-
-    # Isolation Forest
-    iso = IsolationForest(**ISOLATION_FOREST_CONFIG)
-    iso.fit(X_scaled)
-    # decision_function returns higher = more normal; we invert to get anomaly score
-    raw_scores = iso.decision_function(X_scaled)          # shape (n,)
-    labels = iso.predict(X_scaled)                        # +1 normal, -1 anomaly
-
-    # Normalise scores to [0, 1] where 1 = most anomalous
-    min_s, max_s = raw_scores.min(), raw_scores.max()
-    score_range = max_s - min_s if max_s != min_s else 1.0
-    anomaly_scores = 1.0 - (raw_scores - min_s) / score_range  # invert & normalise
-
-    # Optional KMeans
-    cluster_ids: Optional[List[int]] = None
-    if KMEANS_ENABLED:
-        n_clusters = min(KMEANS_CONFIG["n_clusters"], len(snapshots))
-        if n_clusters >= 2:
-            km = KMeans(
-                n_clusters=n_clusters,
-                n_init=KMEANS_CONFIG["n_init"],
-                random_state=KMEANS_CONFIG["random_state"],
-            )
-            cluster_ids = km.fit_predict(X_scaled).tolist()
-
-    results: Dict[int, Tuple[float, bool, Optional[int]]] = {}
-    for i, snap in enumerate(snapshots):
-        row_id = snap["id"]
-        a_score = float(anomaly_scores[i])
-        is_anom = bool(labels[i] == -1)
-        c_id = cluster_ids[i] if cluster_ids is not None else None
-        results[row_id] = (a_score, is_anom, c_id)
-
-    return results
 
 
 # ---------------------------------------------------------------------------
